@@ -7,37 +7,37 @@ A Python based terminal tool to track The Guardian's live over-by-over cricket c
 ### Fetch once and display all cached updates
 
 ```bash
-./obo-follower.py "https://www.theguardian.com/sport/live/2026/aug/29/england-v-pakistan-second-mens-cricket-test-day-three-live" fetch
+./obo-follow.py "https://www.theguardian.com/sport/live/2026/aug/29/england-v-pakistan-second-mens-cricket-test-day-three-live" fetch
 ```
 
 ### Watch for new updates every 120 seconds (default)
 
 ```bash
-./obo-follower.py "https://www.theguardian.com/sport/live/2026/aug/29/england-v-pakistan-second-mens-cricket-test-day-three-live" watch
+./obo-follow.py "https://www.theguardian.com/sport/live/2026/aug/29/england-v-pakistan-second-mens-cricket-test-day-three-live" watch
 ```
 
 ### Watch with a custom polling interval (e.g. every 60 seconds)
 
 ```bash
-./obo-follower.py "https://www.theguardian.com/sport/live/2026/aug/29/england-v-pakistan-second-mens-cricket-test-day-three-live" watch 60
+./obo-follow.py "https://www.theguardian.com/sport/live/2026/aug/29/england-v-pakistan-second-mens-cricket-test-day-three-live" watch 60
 ```
 
 ### Dump the full JSON cache
 
 ```bash
-./obo-follower.py "https://www.theguardian.com/sport/live/2026/aug/29/england-v-pakistan-second-mens-cricket-test-day-three-live" log
+./obo-follow.py "https://www.theguardian.com/sport/live/2026/aug/29/england-v-pakistan-second-mens-cricket-test-day-three-live" log
 ```
 
 ### Suppress ANSI colour codes
 
 ```bash
-NO_COLOR=1 ./obo-follower.py <url> watch
+NO_COLOR=1 ./obo-follow.py <url> watch
 ```
 
 Or redirect to a file:
 
 ```bash
-./obo-follower.py <url> fetch > updates.txt
+./obo-follow.py <url> fetch > updates.txt
 ```
 
 Colour is only emitted when stdout is a terminal; piping automatically disables it.
@@ -141,7 +141,7 @@ The Guardian's Open Platform Content API doesn't expose live over-by-over commen
 
 1. Check the URL is correct and the match is currently live-blogged.
 1. Enable debug logging: edit `logging.basicConfig(level=logging.DEBUG)` to see more detail.
-1. Check the JSON cache: `./obo-follower.py <url> log | head -20`.
+1. Check the JSON cache: `./obo-follow.py <url> log | head -20`.
 1. Inspect the Guardian page in a browser to confirm updates are appearing there.
 
 ### Colour codes leak into redirected output

@@ -1,0 +1,76 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+    # Basic checks
+    - repo: https://github.com/pre-commit/pre-commit-hooks
+      rev: v6.0.0
+      hooks:
+          - id: check-added-large-files
+          - id: check-docstring-first
+          - id: check-executables-have-shebangs
+          - id: check-merge-conflict
+          - id: detect-private-key
+          - id: requirements-txt-fixer
+          - id: trailing-whitespace
+          - id: check-toml
+          - id: check-yaml
+
+    # Python formatting and linting
+    - repo: https://github.com/astral-sh/ruff-pre-commit
+      rev: v0.14.9
+      hooks:
+          - id: ruff-format
+            types: [python]
+          - id: ruff-check
+            args: [--fix]
+            types: [python]
+
+    # Python syntax upgrade
+    - repo: https://github.com/asottile/pyupgrade
+      rev: v3.21.2
+      hooks:
+          - id: pyupgrade
+            args: [--py313-plus]
+            types: [python]
+
+    # Trailing commas
+    - repo: https://github.com/asottile/add-trailing-comma
+      rev: v4.0.0
+      hooks:
+          - id: add-trailing-comma
+            types: [python]
+
+    - repo: https://github.com/jendrikseipp/vulture
+      rev: v2.14
+      hooks:
+          - id: vulture
+            types: [python]
+            pass_filenames: true
+            args:
+                - --ignore-names=lambda_handler,context
+
+    - repo: https://github.com/pre-commit/mirrors-mypy
+      rev: v1.19.0
+      hooks:
+          - id: mypy
+            args: [--ignore-missing-imports, --python-version=3.13]
+            types: [python]
+            additional_dependencies:
+                - types-pytz
+                - types-requests
+                - types-paramiko
+                - types-PyYAML
+
+    - repo: https://github.com/hukkin/mdformat
+      rev: 1.0.0
+      hooks:
+          - id: mdformat
+            additional_dependencies:
+                - mdformat-gfm
+                - mdformat-black
+
+    # Commit Hygiene
+    - repo: https://github.com/qoomon/git-conventional-commits
+      rev: v2.7.2
+      hooks:
+          - id: conventional-commits

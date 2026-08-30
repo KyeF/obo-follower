@@ -117,8 +117,10 @@ class CricketFeedTracker:
         # A clause ends at sentence punctuation, or right before an over header
         # begins (over headers often run straight on from the previous clause
         # with no punctuation between them, e.g. "...Lawrence 47th over: ...").
+
         boundary = re.compile(
-            r"[!.?]\s*|(?=\d+(?:st|and|rd|th)\s+over:)|(?<=\))\s*(?=[A-Z])",
+            r"(?<!wicket)[!.?]\s*|(?<!\d)(?=\d+(?:st|nd|rd|th)\s+over:)|(?<=\))\s*(?=[A-Z])",
+            re.IGNORECASE,
         )
 
         cut_points = [0]
@@ -154,23 +156,24 @@ class CricketFeedTracker:
         # Checked in priority order; first match wins for this clause.
         # Empty colour string ("") means bold-only, no colour.
         rules: list[tuple[str, str]] = [
-            (r"WICKET!.*", RED),
+            (r"wicket!.*?(?:\d+-\d+)?(?:\))?", RED),
             (r".*not out!", GREEN),
-            (r".*[Rr]eview.*", YELLOW),
-            (r"[Rr]ain stops play.*", BLUE),
-            (r"[Mm]ore rain.*", BLUE),
-            (r"[Bb]ad light stops play.*", ORANGE),
-            (r"Stumps.*", ORANGE),
-            (r"[Aa]bandoned.*", RED),
-            (r"[Ff]ifty (?:to|for).*", GREEN),
-            (r"[Hh]undred (?:to|for).*", GREEN),
-            (r"[Ww]in.*", GREEN),
-            (r"[Ll]ose.*", RED),
-            (r"\d+(?:st|and|rd|th)\s+over:[^(]*\([^)]+\)", ""),
+            (r".*review.*", YELLOW),
+            (r"rain stops play.*", BLUE),
+            (r"more rain.*", BLUE),
+            (r"bad light stops play.*", ORANGE),
+            (r"(?<!the )\bstumps\b.*", ORANGE),
+            (r"abandoned.*", RED),
+            (r"fifty (?:to|for).*", GREEN),
+            (r"hundred (?:to|for).*", GREEN),
+            (r"\b\w+ need \d+ to win\b", GREEN),
+            (r"\bwin(?:s|ning)?\b(?: by \d+)?(?:[^.!?]*)?", GREEN),
+            (r"\blos(?:e|ing|es)?\b(?: by \d+)?(?:[^.!?]*)?", RED),
+            (r"\d+(?:st|nd|rd|th)\s+over:[^(]*(?:\([^)]+\))?", ""),
         ]
 
         for pattern, colour in rules:
-            match = re.search(pattern, clause)
+            match = re.search(pattern, clause, re.IGNORECASE)
             if match:
                 highlighted = f"{colour}{BOLD}{match.group()}{RESET}"
                 return clause.replace(match.group(), highlighted, 1)

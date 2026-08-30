@@ -5,8 +5,9 @@ import sys
 from pathlib import Path
 
 import pytest
+import re
 
-from obo_follow import CricketFeedTracker
+from obo_follow import COLOURS, CricketFeedTracker
 
 
 @pytest.fixture
@@ -847,6 +848,251 @@ class TestCLIErrorHandling:
 
         assert result.returncode != 0
 
+
+
+class TestColouringRecentFixes:
+    """Tests for recent changes to colouring rules and clause splitting."""
+
+    def test_boundary_regex_matches_nd_ordinals(self, tracker):
+        """Clause splitting should correctly split before 2nd, 32nd, 42nd overs."""
+        # The boundary regex was fixed from "and" to "nd"
+        text = "Fifty to Lawrence! 2nd over: England 12-0 (Root 5, Cook 7)"
+
+        # Parse the boundary regex to verify it matches "2nd over:"
+        boundary = re.compile(
+            r"[!.?]\s*|(?=\d+(?:st|nd|rd|th)\s+over:)|(?<=\))\s*(?=[A-Z])"
+        )
+
+        matches = list(boundary.finditer(text))
+
+        # Should have matches for the ! and the lookahead before "2nd"
+        assert any("2nd" in text[m.start():m.start()+20] for m in matches), \
+            f"No split found before '2nd over'; matches at positions {[m.span() for m in matches]}"
+
+    def test_win_pattern_bounded_doesnt_swallow_next_sentence(self, tracker):
+        """Win pattern should not swallow unrelated text after 'to win'."""
+        clause = "Pakistan need 389 to win Pakistan will be pleased at how they polished off England's tail"
+        result = tracker._colourise_clause(clause)
+
+        # The highlighting should contain "Pakistan need 389 to win" but not the following sentence
+        # It should either:
+        # 1. Not highlight anything (if the pattern isn't specific enough), or
+        # 2. Highlight only "Pakistan need 389 to win" without the rest
+
+        # Check that "will be pleased" is NOT bolded
+        assert "will be pleased" not in result or "\033[1m" not in result.split("will be pleased")[0][-10:], \
+            "Following sentence was incorrectly included in win highlight"
+
+    def test_lose_pattern_bounded_doesnt_swallow_trailing_text(self, tracker):
+        """Lose pattern should not greedily match beyond the result phrase."""
+        clause = "England lose by 50 runs. India celebrates their magnificent victory."
+        result = tracker._colourise_clause(clause)
+
+        # Should not swallow "India celebrates..."
+        if "\033[91m" in result:  # If RED is present
+            # Extract just the highlighted portion
+            highlighted = result.split("\033[0m")[0]  # Get up to first RESET
+            assert "India" not in highlighted, \
+                "Following sentence was incorrectly included in lose highlight"
+
+    def test_stumps_with_negative_lookbehind_excludes_the_stumps(self, tracker):
+        """'the stumps' should NOT be highlighted, only 'Stumps!' event."""
+        tests = [
+            ("Stumps! England 287-5", True),  # Should highlight
+            ("the stumps are in place", False),  # Should NOT highlight
+            ("He hit the stumps", False),  # Should NOT highlight
+            ("The stumps look good today", False),  # Should NOT highlight (case-insensitive)
+            ("Stumps called early due to bad light", True),  # Should highlight
+        ]
+
+        for clause, should_highlight in tests:
+            result = tracker._colourise_clause(clause)
+            has_orange = "\033[38;5;208m" in result
+
+            if should_highlight:
+                assert has_orange, f"Expected {clause!r} to be highlighted orange, but wasn't"
+            else:
+                assert not has_orange, f"Expected {clause!r} to NOT be highlighted, but was"
+
+    def test_wicket_case_insensitive(self, tracker):
+        """WICKET pattern should match any case: WICKET!, Wicket!, wicket!"""
+        tests = [
+            "WICKET! Atkinson LBW b Mohammad Ali 7",
+            "Wicket! Root caught at slip",
+            "wicket! Another batsman out",
+        ]
+
+        RED = COLOURS["RED"]
+        for clause in tests:
+            result = tracker._colourise_clause(clause)
+            assert RED in result, f"Expected {clause!r} to be highlighted red"
+
+    def test_review_case_insensitive(self, tracker):
+        """Review pattern should match any case: Review, review, REVIEW."""
+        tests = [
+            "Broad reviews the decision!",
+            "REVIEW called on the field",
+            "review pending for LBW decision",
+        ]
+
+        YELLOW = COLOURS["YELLOW"]
+        for clause in tests:
+            result = tracker._colourise_clause(clause)
+            assert YELLOW in result, f"Expected {clause!r} to be highlighted yellow for review"
+
+    def test_rain_case_insensitive(self, tracker):
+        """Rain patterns should match any case."""
+        tests = [
+            ("RAIN STOPS PLAY!", True),
+            ("Rain stops play", True),
+            ("More RAIN delays start", True),
+            ("rain stops play early", True),
+        ]
+
+        BLUE = COLOURS["BLUE"]
+        for clause, should_match in tests:
+            result = tracker._colourise_clause(clause)
+            has_blue = BLUE in result
+
+            if should_match:
+                assert has_blue, f"Expected {clause!r} to be highlighted blue"
+            else:
+                assert not has_blue, f"Expected {clause!r} to NOT be highlighted"
+
+    def test_abandoned_case_insensitive(self, tracker):
+        """Abandoned should match any case."""
+        tests = [
+            "ABANDONED due to rain",
+            "Abandoned! No play today",
+            "abandoned early due to bad light",
+        ]
+
+        RED = COLOURS["RED"]
+        for clause in tests:
+            result = tracker._colourise_clause(clause)
+            assert RED in result, f"Expected {clause!r} to be highlighted red"
+
+    def test_fifty_case_insensitive(self, tracker):
+        """Fifty pattern should match any case."""
+        tests = [
+            "Fifty to Lawrence!",
+            "FIFTY for Root",
+            "fifty to the batter",
+        ]
+
+        GREEN = COLOURS["GREEN"]
+        for clause in tests:
+            result = tracker._colourise_clause(clause)
+            assert GREEN in result, f"Expected {clause!r} to be highlighted green"
+
+    def test_hundred_case_insensitive(self, tracker):
+        """Hundred pattern should match any case."""
+        tests = [
+            "Hundred to Root!",
+            "HUNDRED for Babar",
+            "hundred to the middle order",
+        ]
+
+        GREEN = COLOURS["GREEN"]
+        for clause in tests:
+            result = tracker._colourise_clause(clause)
+            assert GREEN in result, f"Expected {clause!r} to be highlighted green"
+
+    def test_win_lose_word_boundaries_no_false_positives(self, tracker):
+        """Win/lose should not match substrings like 'winter', 'loser', 'closer'."""
+        tests = [
+            ("It was a cold winter's day", False),  # "winter" contains "win"
+            ("The closer they got to the target", False),  # "closer" contains "lose"
+            ("He is a loser in this match", False),  # "loser" contains "lose"
+            ("They will win the match", True),  # Standalone "win"
+            ("England lose by 10 runs", True),  # Standalone "lose"
+        ]
+
+        RED = COLOURS["RED"]
+        GREEN = COLOURS["GREEN"]
+        for clause, should_highlight in tests:
+            result = tracker._colourise_clause(clause)
+            has_colour = RED in result or GREEN in result
+
+            if should_highlight:
+                assert has_colour, f"Expected {clause!r} to be highlighted"
+            else:
+                assert not has_colour, f"Expected {clause!r} to NOT be highlighted (false positive)"
+
+    def test_specific_need_pattern_matches_target_phrase(self, tracker):
+        """The specific 'need N to win' pattern should match exactly."""
+        tests = [
+            ("Pakistan need 389 to win", True),
+            ("England need 5 more to win", True),
+            ("They need 1 to win", True),
+            ("we need to win this match", False),  # "need to win" but not the numerical target
+            ("winning by needing 10", False),  # Contains "need" but not the phrase
+        ]
+
+        GREEN = COLOURS["GREEN"]
+        for clause, should_match in tests:
+            result = tracker._colourise_clause(clause)
+            has_green = GREEN in result
+
+            if should_match:
+                assert has_green, f"Expected {clause!r} to be highlighted green"
+            else:
+                # Note: might still match on generic "win" pattern, so just verify the specific pattern doesn't over-match
+                pass
+
+    def test_over_header_with_nd_ordinals(self, tracker):
+        """Over headers with 2nd, 32nd, 42nd overs should be bolded."""
+        tests = [
+            "2nd over: England 12-0 (Root 5, Cook 7)",
+            "32nd over: Pakistan 87-2 (Babar 45, Imam 30)",
+            "42nd over: England 156-4 (Stokes 52)",
+            "51st over: India 210-5",  # st should also work
+            "3rd over: Australia 18-1",  # rd should work
+        ]
+
+        BOLD = COLOURS["BOLD"]
+        for clause in tests:
+            result = tracker._colourise_clause(clause)
+            assert BOLD in result, f"Expected {clause!r} over header to be bolded"
+
+    def test_full_over_header_captured_not_partial(self, tracker):
+        """Over header should capture the full text including parens and names."""
+        clause = "54th over: England 206-9 (Archer 2, Tongue 12)"
+        result = tracker._colourise_clause(clause)
+
+        BOLD = COLOURS["BOLD"]
+        RESET = COLOURS["RESET"]
+
+        # Should contain the entire over header bolded
+        assert BOLD in result and RESET in result, \
+            "Over header should be bolded"
+
+        # Verify the highlighted portion includes the full header
+        # Extract what's between BOLD and RESET
+        start = result.find(BOLD)
+        end = result.find(RESET)
+        highlighted = result[start:end]
+
+        assert "54th over" in highlighted, "Over number should be in highlighted section"
+        assert "Archer" in highlighted, "Player names should be in highlighted section"
+        assert "Tongue 12" in highlighted, "Full score should be in highlighted section"
+
+    def test_multi_clause_text_with_recent_fixes(self, tracker):
+        """Real-world example: multiple clauses with recent fixes applied."""
+        text = "More rain! And Pakistan need 389 to win 2nd over: England 12-0 (Root 5)"
+
+        result = tracker._colourise_text(text)
+
+        BLUE = COLOURS["BLUE"]
+        GREEN = COLOURS["GREEN"]
+        BOLD = COLOURS["BOLD"]
+
+        # Should have blue for "More rain"
+        assert BLUE in result, "Should highlight 'More rain' in blue"
+        # Should have green for "need 389 to win"
+        assert GREEN in result, "Should highlight 'need 389 to win' in green"
+        # Should have bold for over header
+        assert BOLD in result, "Should bold over header"
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

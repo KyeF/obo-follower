@@ -51,7 +51,10 @@ class CricketFeedTracker:
         self.url = url
         self._use_colour = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
         h = hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()[:8]
-        self.log_path = Path.home() / f".cricket-feed-{h}.json"
+        # Store cache files in local .cache directory
+        self.cache_dir = Path.cwd() / ".cache"
+        self.cache_dir.mkdir(exist_ok=True)
+        self.log_path = self.cache_dir / f"cricket-feed-{h}.json"
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "obo-follower/0.1 (personal use)"})
         self.feed: list[dict] = []
@@ -86,6 +89,8 @@ class CricketFeedTracker:
                     }
                     for b in raw_feed
                 ]
+                # Sort by fetched_at to ensure chronological order across multiple runs
+                self.feed.sort(key=lambda batch: batch.get("fetched_at") or "", reverse=False)
         except (json.JSONDecodeError, OSError, TypeError) as e:
             logger.warning(
                 f"Could not read {self.log_path} ({e}); starting with empty feed",
@@ -205,6 +210,12 @@ class CricketFeedTracker:
         # Match time patterns: "4m ago", "14h ago", "30s ago", "14.31 BST" etc
         text = re.sub(r"^(\d+[smh]\s+ago\s+\d+\.\d+\s+BST\s+)", "", text)
         text = re.sub(r"^(\d+[smh]\s+ago\s+)", "", text)
+
+        # Insert missing spaces around punctuation/number boundaries
+        text = re.sub(r":(?=[A-Za-z0-9])", ": ", text)  # "Chelmsford:Essex" -> "Chelmsford: Essex"
+        text = re.sub(r"(?<=[A-Za-z])(?=[0-9])", " ", text)  # "shire84-0" -> "shire 84-0"
+        text = re.sub(r"(?<=[0-9])(?=[A-Za-z])", " ", text)  # "250Durham" -> "250 Durham"
+        text = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text)  # "vHampshire" -> "v Hampshire"
 
         # Replace multiple spaces/newlines with single space (preserves single spaces)
         text = re.sub(r"(?<=\))(?=[A-Z])", " ", text)

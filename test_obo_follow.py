@@ -86,6 +86,25 @@ class TestCleanText:
         assert cleaned == 'He said " Hello "'
 
 
+
+    def test_close_of_play_score_formatting(self, tracker):
+        """Guardian live blog 'close of play' score blocks have missing spaces around colons and numbers."""
+        # Real example from https://www.theguardian.com/sport/live/2026/aug/29/...
+        text = "Chelmsford:Essex279 v Surrey 183 and 51-4no play today Sophia Gardens: Glamorgan 161 vHampshire162 and 124-2"
+        cleaned = tracker._clean_text(text)
+        
+        # Should have spaces after colons: "Chelmsford: Essex"
+        assert "Chelmsford: Essex" in cleaned, f"Missing space after colon: {cleaned}"
+        
+        # Should have spaces between word and number: "Essex 279"
+        assert "Essex 279" in cleaned, f"Missing space before number: {cleaned}"
+        
+        # Should have spaces between number and word: "51-4 no play"
+        assert "51-4 no play" in cleaned, f"Missing space after number: {cleaned}"
+        
+        # Should have spaces between word and number in team: "v Hampshire 162"
+        assert "v Hampshire 162" in cleaned, f"Missing space in team score: {cleaned}"
+
 class TestColouriseClause:
     """Tests for _colourise_clause() — single-clause highlighting."""
 
@@ -1452,6 +1471,81 @@ class TestWatchTimeoutPrecision:
         assert elapsed < 5  # Much less than 10 seconds
 
 
+
+
+class TestFetchOrdering:
+    """Tests to ensure fetch ordering is consistent across multiple runs."""
+
+    def test_fetch_maintains_chronological_order(self, tracker, monkeypatch):
+        """Multiple fetches should maintain chronological order of batches."""
+        from unittest.mock import Mock
+        
+        # First fetch
+        tracker.feed = [
+            {
+                "fetched_at": "2026-08-31T10:00:00",
+                "count": 2,
+                "updates": ["Update A", "Update B"]
+            }
+        ]
+        tracker._save()
+        
+        # Reload and add second batch (simulating second run)
+        tracker2 = tracker.__class__(tracker.url)
+        tracker2.log_path = tracker.log_path
+        tracker2._load()
+        
+        # Second fetch adds newer batch
+        tracker2.feed.append({
+            "fetched_at": "2026-08-31T10:30:00",
+            "count": 1,
+            "updates": ["Update C"]
+        })
+        tracker2._save()
+        
+        # Third load and verify order
+        tracker3 = tracker.__class__(tracker.url)
+        tracker3.log_path = tracker.log_path
+        tracker3._load()
+        
+        # Verify batches are in chronological order
+        assert len(tracker3.feed) == 2
+        assert tracker3.feed[0]["fetched_at"] == "2026-08-31T10:00:00"
+        assert tracker3.feed[1]["fetched_at"] == "2026-08-31T10:30:00"
+        
+        # Verify all updates are present and in order
+        all_updates = []
+        for batch in tracker3.feed:
+            all_updates.extend(batch.get("updates", []))
+        assert all_updates == ["Update A", "Update B", "Update C"]
+
+    def test_out_of_order_batches_get_sorted_on_load(self, tracker, monkeypatch):
+        """If batches are saved out of order, they should be sorted on load."""
+        # Manually create out-of-order batches
+        tracker.feed = [
+            {
+                "fetched_at": "2026-08-31T10:30:00",
+                "count": 1,
+                "updates": ["Update C"]
+            },
+            {
+                "fetched_at": "2026-08-31T10:00:00",
+                "count": 2,
+                "updates": ["Update A", "Update B"]
+            }
+        ]
+        tracker._save()
+        
+        # Reload and verify sorting
+        tracker2 = tracker.__class__(tracker.url)
+        tracker2.log_path = tracker.log_path
+        tracker2._load()
+        
+        # Should be sorted chronologically
+        assert tracker2.feed[0]["fetched_at"] == "2026-08-31T10:00:00"
+        assert tracker2.feed[1]["fetched_at"] == "2026-08-31T10:30:00"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 
@@ -1517,7 +1611,7 @@ class TestInitialisation:
         tracker2 = CricketFeedTracker("https://example.com/test2")
         
         assert tracker1.log_path != tracker2.log_path
-        assert ".cricket-feed-" in str(tracker1.log_path)
+        assert "cricket-feed-" in str(tracker1.log_path)
 
 
 class TestColouriseEdgeCases:
@@ -1747,7 +1841,7 @@ class TestInitUnhappyPath:
         """Cache path should be based on URL hash."""
         url = "https://example.com/test"
         tracker = CricketFeedTracker(url)
-        assert ".cricket-feed-" in str(tracker.log_path)
+        assert "cricket-feed-" in str(tracker.log_path)
         assert tracker.log_path.name.endswith(".json")
 
     def test_init_with_very_long_url(self):

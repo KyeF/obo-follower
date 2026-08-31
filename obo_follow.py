@@ -340,7 +340,7 @@ class CricketFeedTracker:
         for upd in all_updates[-DISPLAY_LIMIT:]:
             colourised = self._colourise_text(upd)
             print(colourised)
-            print()
+            print("-" * 80)
 
         print("=" * 80 + "\n")
 

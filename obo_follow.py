@@ -8,9 +8,9 @@ import logging
 import os
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from time import sleep
+from time import sleep, time
 
 import requests
 from bs4 import BeautifulSoup
@@ -30,6 +30,8 @@ COLOURS = {
     "ORANGE": "\033[38;5;208m",
     "RESET": "\033[0m",
     "BOLD": "\033[1m",
+    "ITALIC": "\033[3m",
+    "UNDERLINE": "\033[4m",
 }
 
 MIN_UPDATE_LENGTH = 40
@@ -152,30 +154,34 @@ class CricketFeedTracker:
         ORANGE = COLOURS["ORANGE"]
         RESET = COLOURS["RESET"]
         BOLD = COLOURS["BOLD"]
+        ITALIC = COLOURS["ITALIC"]
+        UNDERLINE = COLOURS["UNDERLINE"]
 
         # Checked in priority order; first match wins for this clause.
         # Empty colour string ("") means bold-only, no colour.
         rules: list[tuple[str, str]] = [
-            (r"wicket!.*?(?:\d+-\d+)?(?:\))?", RED),
-            (r".*not out!", GREEN),
-            (r".*review.*", YELLOW),
-            (r"rain stops play.*", BLUE),
-            (r"more rain.*", BLUE),
-            (r"bad light stops play.*", ORANGE),
-            (r"(?<!the )\bstumps\b.*", ORANGE),
-            (r"abandoned.*", RED),
-            (r"fifty (?:to|for).*", GREEN),
-            (r"hundred (?:to|for).*", GREEN),
-            (r"\b\w+ need \d+ to win\b", GREEN),
-            (r"\bwin(?:s|ning)?\b(?: by \d+)?(?:[^.!?]*)?", GREEN),
-            (r"\blos(?:e|ing|es)?\b(?: by \d+)?(?:[^.!?]*)?", RED),
-            (r"\d+(?:st|nd|rd|th)\s+over:[^(]*(?:\([^)]+\))?", ""),
+            (r"wicket!.*?(?:\d+-\d+)?(?:\))?", RED + BOLD),
+            (r".*not out!", GREEN + BOLD),
+            (r".*review.*", YELLOW + BOLD),
+            (r"rain stops play.*", BLUE + BOLD),
+            (r"more rain.*", BLUE + BOLD),
+            (r"bad light stops play.*", ORANGE + BOLD),
+            (r"^stumps\b[!:].*", ORANGE + BOLD),
+            (r"abandoned.*", RED + BOLD),
+            (r"fifty (?:to|for).*", GREEN + BOLD),
+            (r"hundred (?:to|for).*", GREEN + BOLD),
+            (r"\b\w+ need \d+ to win\b", GREEN + BOLD),
+            (r"\b\w+ win(?:s|ning)?\b(?: by \d+)?(?:[^.!?]*)?", GREEN + BOLD),
+            (r"\b\w+ los(?:e|ing|es)?\b(?: by \d+)?(?:[^.!?]*)?", RED + BOLD),
+            (r"(?:man|woman) of the match is \w+ \w+|\w+ \w+ is (?:man|woman) of the match", GREEN + BOLD),
+            (r"^(?:lunch|tea)\b.*?\d+-\d+|^(?:lunch|tea)\b.*", BOLD + ITALIC + UNDERLINE),
+            (r"\d+(?:st|nd|rd|th)\s+over:[^(]*(?:\([^)]+\))?", BOLD),
         ]
 
-        for pattern, colour in rules:
+        for pattern, style in rules:
             match = re.search(pattern, clause, re.IGNORECASE)
             if match:
-                highlighted = f"{colour}{BOLD}{match.group()}{RESET}"
+                highlighted = f"{style}{match.group()}{RESET}"
                 return clause.replace(match.group(), highlighted, 1)
 
         return clause
@@ -327,13 +333,26 @@ class CricketFeedTracker:
 
         print("=" * 80 + "\n")
 
-    def watch(self, interval: int = DEFAULT_INTERVAL) -> None:
+    def watch(self, interval: int = DEFAULT_INTERVAL, max_runtime_hours: int = 9) -> None:
         """Poll the live blog repeatedly and print new updates.
 
         Args:
             interval: Polling interval in seconds (default: 120).
+            max_runtime_hours: Maximum runtime in hours before auto-stopping (default: 9).
         """
-        logger.info(f"Starting watch mode (polling every {interval}s)")
+        max_runtime_seconds = max_runtime_hours * 3600
+        start_time = time()
+
+        # Calculate wall-clock end time
+        end_time = datetime.now() + timedelta(hours=max_runtime_hours)
+        end_time_str = end_time.strftime("%H:%M")
+
+        msg = (
+            f"Starting watch mode (polling every {interval}s, "
+            f"will stop after {max_runtime_hours}h at {end_time_str})"
+        )
+        print(msg)
+        logger.info(msg)
         try:
             while True:
                 try:
@@ -351,7 +370,17 @@ class CricketFeedTracker:
                     print(colourised)
                     print("-" * 80)
 
-                sleep(interval)
+                # Check timeout before sleeping
+                elapsed = time() - start_time
+                if elapsed > max_runtime_seconds:
+                    print(f"\n\nTimeout: {max_runtime_hours}h runtime reached, stopping.")
+                    logger.info(f"Watch mode timeout after {elapsed / 3600:.1f} hours")
+                    return
+
+                remaining = max_runtime_seconds - (time() - start_time)
+                sleep_time = interval if remaining > interval else remaining
+                if sleep_time > 0:
+                    sleep(sleep_time)
         except KeyboardInterrupt:
             print("\n\nStopped.")
             logger.info("Watch mode stopped by user")

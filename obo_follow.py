@@ -404,6 +404,12 @@ def main() -> None:
         default=DEFAULT_INTERVAL,
         help="Polling interval in seconds for watch mode (default: 120)",
     )
+    parser.add_argument(
+        "--max-hours",
+        type=int,
+        default=9,
+        help="Maximum watch runtime in hours before auto-stopping (default: 9)",
+    )
     args = parser.parse_args()
 
     tracker = CricketFeedTracker(args.url)
@@ -411,7 +417,7 @@ def main() -> None:
         tracker.fetch()
         tracker.display()
     elif args.command == "watch":
-        tracker.watch(args.interval)
+        tracker.watch(args.interval, max_runtime_hours=args.max_hours)
     else:  # log
         print(json.dumps(tracker.feed, indent=2))
 

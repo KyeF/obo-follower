@@ -28,6 +28,7 @@ COLOURS = {
     "YELLOW": "\033[93m",
     "BLUE": "\033[94m",
     "ORANGE": "\033[38;5;208m",
+    "PURPLE": "\033[95m",
     "RESET": "\033[0m",
     "BOLD": "\033[1m",
     "ITALIC": "\033[3m",
@@ -126,7 +127,7 @@ class CricketFeedTracker:
         # with no punctuation between them, e.g. "...Lawrence 47th over: ...").
 
         boundary = re.compile(
-            r"(?<!wicket)[!.?]\s*|(?<!\d)(?=\d+(?:st|nd|rd|th)\s+over:)|(?<=\))\s*(?=[A-Z])",
+            r"(?<!wicket)(?<!wicket!)[!.?]\s*|(?<!\d)(?=\d+(?:st|nd|rd|th)\s+over:)|(?<=\))\s*(?=[A-Z])",
             re.IGNORECASE,
         )
 
@@ -157,6 +158,7 @@ class CricketFeedTracker:
         YELLOW = COLOURS["YELLOW"]
         BLUE = COLOURS["BLUE"]
         ORANGE = COLOURS["ORANGE"]
+        PURPLE = COLOURS["PURPLE"]
         RESET = COLOURS["RESET"]
         BOLD = COLOURS["BOLD"]
         ITALIC = COLOURS["ITALIC"]
@@ -165,12 +167,14 @@ class CricketFeedTracker:
         # Checked in priority order; first match wins for this clause.
         # Empty colour string ("") means bold-only, no colour.
         rules: list[tuple[str, str]] = [
-            (r"wicket!.*?(?:\d+-\d+)?(?:\))?", RED + BOLD),
+            (r"\w+ all out for \d+", RED + BOLD),
+            (r"wicket!+[^)]*\)?", RED + BOLD),
+            (r"all out", RED + BOLD),
             (r".*not out!", GREEN + BOLD),
             (r".*review.*", YELLOW + BOLD),
             (r"rain stops play.*", BLUE + BOLD),
             (r"more rain.*", BLUE + BOLD),
-            (r"bad light stops play.*", ORANGE + BOLD),
+            (r"bad light stops play.*", PURPLE + BOLD),
             (r"^stumps\b[!:].*", ORANGE + BOLD),
             (r"abandoned.*", RED + BOLD),
             (r"fifty (?:to|for).*", GREEN + BOLD),
@@ -179,7 +183,7 @@ class CricketFeedTracker:
             (r"\b\w+ win(?:s|ning)?\b(?: by \d+)?(?:[^.!?]*)?", GREEN + BOLD),
             (r"\b\w+ los(?:e|ing|es)?\b(?: by \d+)?(?:[^.!?]*)?", RED + BOLD),
             (r"(?:man|woman) of the match is \w+ \w+|\w+ \w+ is (?:man|woman) of the match", GREEN + BOLD),
-            (r"^(?:lunch|tea)\b.*?\d+-\d+|^(?:lunch|tea)\b.*", BOLD + ITALIC + UNDERLINE),
+            (r"^(?:lunch|tea)\b", BOLD + ITALIC + UNDERLINE),
             (r"\d+(?:st|nd|rd|th)\s+over:[^(]*(?:\([^)]+\))?", BOLD),
         ]
 
@@ -220,6 +224,13 @@ class CricketFeedTracker:
         # Replace multiple spaces/newlines with single space (preserves single spaces)
         text = re.sub(r"(?<=\))(?=[A-Z])", " ", text)
         text = re.sub(r"\s+", " ", text)
+
+        # Remove spaces before opening quotes
+        text = re.sub(r'(["\']) +', r'\1', text)  # Remove space after opening quote
+
+        # Remove spaces between ordinal numbers and suffixes (must be last, after all other regexes)
+        text = re.sub(r"(\d+)\s+(st|nd|rd|th)", r"\1\2", text)
+
         return text.strip()
 
     def _extract_all_updates(self) -> list[str]:
@@ -254,12 +265,12 @@ class CricketFeedTracker:
                 if header:
                     h2 = header.find("h2")
                     if h2:
-                        heading = h2.get_text(strip=True)
+                        heading = h2.get_text(separator=' ', strip=True)
 
                 # Extract all paragraph text (any <p> tag — Guardian hashes the classes,
                 # so we can't rely on class matching; instead grab any paragraph in the article)
                 paragraphs = article.find_all("p")
-                body = " ".join([p.get_text(strip=True) for p in paragraphs])
+                body = " ".join([p.get_text(separator=' ', strip=True) for p in paragraphs])
 
                 if heading and body:
                     full_text = f"{heading} {body}"
@@ -342,8 +353,6 @@ class CricketFeedTracker:
             print(colourised)
             print("-" * 80)
 
-        print("=" * 80 + "\n")
-
     def watch(self, interval: int = DEFAULT_INTERVAL, max_runtime_hours: int = 9) -> None:
         """Poll the live blog repeatedly and print new updates.
 
@@ -362,8 +371,8 @@ class CricketFeedTracker:
             f"Starting watch mode (polling every {interval}s, "
             f"will stop after {max_runtime_hours}h at {end_time_str})"
         )
-        print(msg)
         logger.info(msg)
+        print("-" * 80)
         try:
             while True:
                 try:

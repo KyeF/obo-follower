@@ -222,8 +222,83 @@ class TestColouriseClause:
         assert "WICKET!" in result.split(";")[0] or "WICKET" in result[:20]
 
 
+    def test_highlights_wicket_double_exclamation(self, tracker):
+        """WICKET!! (double exclamation) should be highlighted in red."""
+        clause = "WICKET!! Root LBW b Razaullah 8 (England 39-3)"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["RED"] in result
+        assert "WICKET!!" in result
+        
+    def test_highlights_all_out(self, tracker):
+        """'Team all out for N' should be highlighted in red."""
+        clause = "Pakistan all out for 133"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["RED"] in result
+        # Should match and highlight the full phrase
+        match = re.search(r'\033\[91m(.*?)\033\[0m', result)
+        assert match, f"Expected red highlighting in {result!r}"
+        assert "all out for 133" in match.group(1).lower()
+        
+    def test_highlights_tea_with_punctuation(self, tracker):
+        """Tea! (with exclamation) should be italicised and underlined."""
+        clause = "Tea! The Mohammads strike back"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["ITALIC"] in result
+        assert COLOURS["UNDERLINE"] in result
+        assert "Tea" in result
+        
+    def test_highlights_lunch_with_space(self, tracker):
+        """Lunch (with space) should be italicised and underlined."""
+        clause = "Lunch 23rd over: Pakistan 100-7 (Razaullah 11, Shakeel 37)"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["ITALIC"] in result
+        assert COLOURS["UNDERLINE"] in result
+        # Only "Lunch" should be styled, not the trailing space
+        match = re.search(r'\033\[1m\033\[3m\033\[4m(.*?)\033\[0m', result)
+        assert match, f"Expected formatting in {result!r}"
+        highlighted = match.group(1)
+        assert highlighted == "Lunch", f"Expected only 'Lunch', got {highlighted!r}"
+
+
 class TestColouriseText:
     """Tests for _colourise_text() — multi-clause text with independent colouring."""
+
+    def test_highlights_wicket_double_exclamation(self, tracker):
+        """WICKET!! (double exclamation) should be highlighted in red."""
+        clause = "WICKET!! Root LBW b Razaullah 8 (England 39-3)"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["RED"] in result
+        assert "WICKET!!" in result
+        
+    def test_highlights_all_out(self, tracker):
+        """'Team all out for N' should be highlighted in red."""
+        clause = "Pakistan all out for 133"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["RED"] in result
+        # Should match and highlight the full phrase
+        match = re.search(r'\033\[91m(.*?)\033\[0m', result)
+        assert match, f"Expected red highlighting in {result!r}"
+        assert "all out for 133" in match.group(1).lower()
+        
+    def test_highlights_tea_with_punctuation(self, tracker):
+        """Tea! (with exclamation) should be italicised and underlined."""
+        clause = "Tea! The Mohammads strike back"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["ITALIC"] in result
+        assert COLOURS["UNDERLINE"] in result
+        assert "Tea" in result
+        
+    def test_highlights_lunch_with_space(self, tracker):
+        """Lunch (with space) should be italicised and underlined."""
+        clause = "Lunch 23rd over: Pakistan 100-7 (Razaullah 11, Shakeel 37)"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["ITALIC"] in result
+        assert COLOURS["UNDERLINE"] in result
+        # Only "Lunch" should be styled, not the trailing space
+        match = re.search(r'\033\[1m\033\[3m\033\[4m(.*?)\033\[0m', result)
+        assert match, f"Expected formatting in {result!r}"
+        highlighted = match.group(1)
+        assert highlighted == "Lunch", f"Expected only 'Lunch', got {highlighted!r}"
 
     def test_no_colour_when_not_tty(self, tracker, monkeypatch):
         """Should return text unchanged when not attached to a TTY."""

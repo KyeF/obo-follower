@@ -113,7 +113,7 @@ Each URL gets its own file (hash-based), allowing simultaneous tracking of multi
 ## CLI Arguments
 
 ```
-usage: obo_follow.py [-h] [--max-hours MAX_HOURS] url command [interval]
+usage: obo_follow.py [-h] url command [interval]
 
 positional arguments:
   url                       URL of the Guardian live blog page
@@ -154,9 +154,8 @@ The Guardian's Open Platform Content API doesn't expose live over-by-over commen
 ### No updates appear on `fetch`
 
 1. Check the URL is correct and the match is currently live-blogged.
-2. Enable debug logging: `logging.basicConfig(level=logging.DEBUG)` in `obo_follow.py`.
-3. Check the JSON cache: `python3 obo_follow.py <url> log | head -20`.
-4. Inspect the Guardian page in a browser to confirm updates are appearing there.
+2. Check the JSON cache: `python3 obo_follow.py <url> log | head -20`.
+3. Inspect the Guardian page in a browser to confirm updates are appearing there.
 
 ### Colour codes leak into redirected output
 
@@ -164,7 +163,7 @@ The script detects whether stdout is a terminal and only emits ANSI codes in int
 
 ### Script crashes on interrupted fetch
 
-If the script is killed during a write (Ctrl-C during a save operation), the JSON file may be left in an inconsistent state. The `_load()` method has error recovery — it'll warn and start with an empty feed rather than crashing.
+If the script is killed during a write (Ctrl-C during a save operation), the JSON file may be left in an inconsistent state. The `_load()` method has error recovery — it'll start with an empty feed rather than crashing.
 
 ### Very old matches keep showing in `fetch`
 

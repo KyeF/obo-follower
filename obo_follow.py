@@ -167,8 +167,12 @@ class CricketFeedTracker:
         # Checked in priority order; first match wins for this clause.
         # Empty colour string ("") means bold-only, no colour.
         rules: list[tuple[str, str]] = [
-            (r"\w+ all out for \d+", RED + BOLD),
-            (r"wicket!+[^)]*\)?", RED + BOLD),
+            (r"wicket!+[^)]*\)?", RED + BOLD),  # WICKET - highest priority
+            (r"^(?:lunch|tea|drinks)[!:]?", BOLD + ITALIC + UNDERLINE),  # Drinks/Lunch/Tea
+            (r"\w+ trail by \d+ runs", ITALIC),  # Pakistan trail by 87 runs
+            (r"\d+-\d+ win\b", GREEN + BOLD),  # 3-0 win
+            (r"\w+ all out for \d+", RED + BOLD),  # Team all out for N
+            (r"\d+ all out", RED + BOLD),  # 449 all out
             (r"all out", RED + BOLD),
             (r".*not out!", GREEN + BOLD),
             (r".*review.*", YELLOW + BOLD),
@@ -183,7 +187,6 @@ class CricketFeedTracker:
             (r"\b\w+ win(?:s|ning)?\b(?: by \d+)?(?:[^.!?]*)?", GREEN + BOLD),
             (r"\b\w+ los(?:e|ing|es)?\b(?: by \d+)?(?:[^.!?]*)?", RED + BOLD),
             (r"(?:man|woman) of the match is \w+ \w+|\w+ \w+ is (?:man|woman) of the match", GREEN + BOLD),
-            (r"^(?:lunch|tea)\b", BOLD + ITALIC + UNDERLINE),
             (r"\d+(?:st|nd|rd|th)\s+over:[^(]*(?:\([^)]+\))?", BOLD),
         ]
 

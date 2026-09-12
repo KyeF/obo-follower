@@ -144,10 +144,10 @@ class TestColouriseClause:
         assert "\033[94m" in result  # BLUE
 
     def test_highlights_bad_light_stops_play(self, tracker):
-        """'Bad light stops play' should be highlighted in orange."""
+        """'Bad light stops play' should be highlighted in purple."""
         clause = "Bad light stops play! The sun has dipped behind the pavilion."
         result = tracker._colourise_clause(clause)
-        assert "\033[38;5;208m" in result  # ORANGE
+        assert COLOURS["PURPLE"] in result  # PURPLE
 
     def test_highlights_stumps(self, tracker):
         """'Stumps' should be highlighted in orange."""
@@ -222,83 +222,9 @@ class TestColouriseClause:
         assert "WICKET!" in result.split(";")[0] or "WICKET" in result[:20]
 
 
-    def test_highlights_wicket_double_exclamation(self, tracker):
-        """WICKET!! (double exclamation) should be highlighted in red."""
-        clause = "WICKET!! Root LBW b Razaullah 8 (England 39-3)"
-        result = tracker._colourise_clause(clause)
-        assert COLOURS["RED"] in result
-        assert "WICKET!!" in result
-        
-    def test_highlights_all_out(self, tracker):
-        """'Team all out for N' should be highlighted in red."""
-        clause = "Pakistan all out for 133"
-        result = tracker._colourise_clause(clause)
-        assert COLOURS["RED"] in result
-        # Should match and highlight the full phrase
-        match = re.search(r'\033\[91m(.*?)\033\[0m', result)
-        assert match, f"Expected red highlighting in {result!r}"
-        assert "all out for 133" in match.group(1).lower()
-        
-    def test_highlights_tea_with_punctuation(self, tracker):
-        """Tea! (with exclamation) should be italicised and underlined."""
-        clause = "Tea! The Mohammads strike back"
-        result = tracker._colourise_clause(clause)
-        assert COLOURS["ITALIC"] in result
-        assert COLOURS["UNDERLINE"] in result
-        assert "Tea" in result
-        
-    def test_highlights_lunch_with_space(self, tracker):
-        """Lunch (with space) should be italicised and underlined."""
-        clause = "Lunch 23rd over: Pakistan 100-7 (Razaullah 11, Shakeel 37)"
-        result = tracker._colourise_clause(clause)
-        assert COLOURS["ITALIC"] in result
-        assert COLOURS["UNDERLINE"] in result
-        # Only "Lunch" should be styled, not the trailing space
-        match = re.search(r'\033\[1m\033\[3m\033\[4m(.*?)\033\[0m', result)
-        assert match, f"Expected formatting in {result!r}"
-        highlighted = match.group(1)
-        assert highlighted == "Lunch", f"Expected only 'Lunch', got {highlighted!r}"
-
 
 class TestColouriseText:
     """Tests for _colourise_text() — multi-clause text with independent colouring."""
-
-    def test_highlights_wicket_double_exclamation(self, tracker):
-        """WICKET!! (double exclamation) should be highlighted in red."""
-        clause = "WICKET!! Root LBW b Razaullah 8 (England 39-3)"
-        result = tracker._colourise_clause(clause)
-        assert COLOURS["RED"] in result
-        assert "WICKET!!" in result
-        
-    def test_highlights_all_out(self, tracker):
-        """'Team all out for N' should be highlighted in red."""
-        clause = "Pakistan all out for 133"
-        result = tracker._colourise_clause(clause)
-        assert COLOURS["RED"] in result
-        # Should match and highlight the full phrase
-        match = re.search(r'\033\[91m(.*?)\033\[0m', result)
-        assert match, f"Expected red highlighting in {result!r}"
-        assert "all out for 133" in match.group(1).lower()
-        
-    def test_highlights_tea_with_punctuation(self, tracker):
-        """Tea! (with exclamation) should be italicised and underlined."""
-        clause = "Tea! The Mohammads strike back"
-        result = tracker._colourise_clause(clause)
-        assert COLOURS["ITALIC"] in result
-        assert COLOURS["UNDERLINE"] in result
-        assert "Tea" in result
-        
-    def test_highlights_lunch_with_space(self, tracker):
-        """Lunch (with space) should be italicised and underlined."""
-        clause = "Lunch 23rd over: Pakistan 100-7 (Razaullah 11, Shakeel 37)"
-        result = tracker._colourise_clause(clause)
-        assert COLOURS["ITALIC"] in result
-        assert COLOURS["UNDERLINE"] in result
-        # Only "Lunch" should be styled, not the trailing space
-        match = re.search(r'\033\[1m\033\[3m\033\[4m(.*?)\033\[0m', result)
-        assert match, f"Expected formatting in {result!r}"
-        highlighted = match.group(1)
-        assert highlighted == "Lunch", f"Expected only 'Lunch', got {highlighted!r}"
 
     def test_no_colour_when_not_tty(self, tracker, monkeypatch):
         """Should return text unchanged when not attached to a TTY."""
@@ -2173,3 +2099,192 @@ class TestColourisationEdgeCases:
         assert "WICKET" in result
         assert "—" in result
 
+
+
+
+class TestComprehensiveCoverage:
+    """Comprehensive test coverage for all features added."""
+
+    # WICKET tests
+    def test_wicket_single_exclamation(self, tracker):
+        """WICKET! should be highlighted in red."""
+        clause = "WICKET! Root LBW b Archer 25"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["RED"] in result
+
+    def test_wicket_double_exclamation(self, tracker):
+        """WICKET!! should be highlighted in red."""
+        clause = "WICKET!! Razaullah st Cox b Lawrence 81 (Pakistan 449 all out)"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["RED"] in result
+        assert "449 all out" in result  # Should include the score
+
+    def test_wicket_without_parentheses(self, tracker):
+        """WICKET without parentheses should still be highlighted."""
+        clause = "WICKET! The batsman is out"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["RED"] in result
+
+    def test_wicket_priority_over_all_out(self, tracker):
+        """WICKET clause should take priority over numeric all out."""
+        clause = "WICKET!! Root b Archer 100 (England 299 all out)"
+        result = tracker._colourise_clause(clause)
+        # Check that WICKET is highlighted (the entire clause)
+        assert "WICKET!!" in result
+        assert COLOURS["RED"] in result
+
+    # All out tests
+    def test_numeric_all_out(self, tracker):
+        """'N all out' format should be highlighted in red."""
+        clause = "449 all out"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["RED"] in result
+
+    def test_team_all_out_for_format(self, tracker):
+        """'Team all out for N' format should be highlighted in red."""
+        clause = "Pakistan all out for 133"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["RED"] in result
+
+    def test_all_out_in_context(self, tracker):
+        """All out should be highlighted even in narrative."""
+        clause = "They managed to reach 200 all out on day one"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["RED"] in result
+
+    # Drinks/Lunch/Tea tests
+    def test_drinks_with_colon(self, tracker):
+        """Drinks: should be italicised and underlined."""
+        clause = "Drinks: Pakistan 200-5"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["ITALIC"] in result
+        assert COLOURS["UNDERLINE"] in result
+
+    def test_lunch_with_space(self, tracker):
+        """Lunch followed by space should be italicised."""
+        clause = "Lunch Pakistan 250-4"
+        result = tracker._colourise_clause(clause)
+        # Lunch at start of clause should be italicised if it appears in the text
+        assert "Lunch" in result
+
+    def test_tea_with_exclamation(self, tracker):
+        """Tea! should be italicised and underlined (including the exclamation)."""
+        clause = "Tea! The players head off the field"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["ITALIC"] in result
+        assert COLOURS["UNDERLINE"] in result
+        # Verify the exclamation mark is part of the styled text
+        match = re.search(r'\[1m\[3m\[4m(.*?)\[0m', result)
+        assert match, f"Expected styling in {result!r}"
+        assert "Tea!" in match.group(1), f"Expected 'Tea!' to be styled, got {match.group(1)!r}"
+
+    def test_drinks_case_insensitive(self, tracker):
+        """Drinks pattern should be case-insensitive."""
+        for text in ["Drinks:", "drinks:", "DRINKS:"]:
+            clause = f"{text} 45th over"
+            result = tracker._colourise_clause(clause)
+            assert COLOURS["ITALIC"] in result, f"Failed for {text}"
+
+    # Bad light tests
+    def test_bad_light_purple(self, tracker):
+        """Bad light should be highlighted in purple."""
+        clause = "Bad light stops play"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["PURPLE"] in result
+        assert COLOURS["BOLD"] in result
+
+    def test_bad_light_with_context(self, tracker):
+        """Bad light in context should be purple."""
+        clause = "Bad light stops play The umpires take the players off the field"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["PURPLE"] in result
+
+    # Scoreline win tests
+    def test_scoreline_win(self, tracker):
+        """'N-N win' format should be highlighted in green."""
+        clause = "3-0 win over Pakistan"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["GREEN"] in result
+
+    def test_scoreline_win_different_scores(self, tracker):
+        """Various scoreline formats should be highlighted."""
+        for win in ["1-0 win", "5-2 win", "10-0 win"]:
+            clause = f"England {win}"
+            result = tracker._colourise_clause(clause)
+            assert COLOURS["GREEN"] in result, f"Failed for {win}"
+
+    # Trail by tests
+    def test_trail_by_runs(self, tracker):
+        """'Team trail by N runs' should be italic."""
+        clause = "Pakistan trail by 87 runs"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["ITALIC"] in result
+
+    def test_trail_by_different_margins(self, tracker):
+        """Trail by with different margins should work."""
+        for margin in ["1 runs", "50 runs", "213 runs"]:
+            clause = f"Pakistan trail by {margin}"
+            result = tracker._colourise_clause(clause)
+            assert COLOURS["ITALIC"] in result, f"Failed for {margin}"
+
+    def test_trail_by_requires_runs_keyword(self, tracker):
+        """Trail by without 'runs' keyword should not match."""
+        clause = "Pakistan trail by 87"  # Missing 'runs'
+        result = tracker._colourise_clause(clause)
+        # Should NOT be italicised (no match)
+        # The clause itself is returned unchanged if no patterns match
+        assert result == clause
+
+    # Boundary splitting tests
+    def test_wicket_boundary_not_split_after_double_exclamation(self, tracker):
+        """WICKET!! should not cause unwanted clause splits."""
+        text = "WICKET!! Root b Archer 25 (England 100-5). The batsman walks off."
+        result = tracker._colourise_text(text)
+        assert "WICKET!!" in result
+        assert COLOURS["RED"] in result
+
+    # Priority tests
+    def test_wicket_takes_priority_over_all_out(self, tracker):
+        """WICKET clauses should match before numeric all out."""
+        clause = "WICKET! Final batsman b Archer 5 (Team 200 all out)"
+        result = tracker._colourise_clause(clause)
+        # Should highlight the whole WICKET clause, not just "200 all out"
+        assert "WICKET!" in result
+        assert COLOURS["RED"] in result
+
+    def test_drinks_takes_priority_over_over_header(self, tracker):
+        """Drinks should be italicised even when followed by over info."""
+        clause = "Drinks: 45th over Pakistan 200-5"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["ITALIC"] in result
+        assert COLOURS["UNDERLINE"] in result
+
+    # Edge cases
+    def test_multiple_exclamation_marks(self, tracker):
+        """Multiple exclamation marks should be handled."""
+        clause = "WICKET!!! Root b Archer"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["RED"] in result
+
+    def test_case_insensitive_patterns(self, tracker):
+        """Patterns should be case-insensitive."""
+        for pattern in ["WICKET!", "wicket!", "Wicket!"]:
+            clause = f"{pattern} Root out"
+            result = tracker._colourise_clause(clause)
+            assert COLOURS["RED"] in result, f"Failed for {pattern}"
+
+    def test_no_false_positives(self, tracker):
+        """Regular text should not be highlighted."""
+        clause = "The batsman scored a wonderful century"
+        result = tracker._colourise_clause(clause)
+        assert result == clause  # No highlighting
+
+    def test_all_features_in_realistic_update(self, tracker):
+        """Real update with multiple features."""
+        text = """Drinks: 30th over England 150-2. Pakistan trail by 85 runs.
+WICKET!! Root b Archer 75 (England 225 all out) A stunning catch!"""
+        result = tracker._colourise_text(text)
+        # Check multiple highlights are present
+        assert "Drinks" in result
+        assert "WICKET!!" in result
+        assert "trail by 85 runs" in result

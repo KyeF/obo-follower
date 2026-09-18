@@ -50,10 +50,10 @@ class TestCleanText:
         assert cleaned == 'Root said "great" & it was'
 
     def test_normalises_whitespace(self, tracker):
-        """Multiple spaces and newlines should collapse to single spaces."""
+        """Horizontal whitespace normalises while paragraph breaks remain intact."""
         text = "England  \n\n  177-7  \t  (Lawrence  50)"
         cleaned = tracker._clean_text(text)
-        assert cleaned == "England 177-7 (Lawrence 50)"
+        assert cleaned == "England\n\n177-7 (Lawrence 50)"
 
     def test_strips_leading_trailing_whitespace(self, tracker):
         """Leading and trailing whitespace should be removed."""
@@ -92,16 +92,16 @@ class TestCleanText:
         # Real example from https://www.theguardian.com/sport/live/2026/aug/29/...
         text = "Chelmsford:Essex279 v Surrey 183 and 51-4no play today Sophia Gardens: Glamorgan 161 vHampshire162 and 124-2"
         cleaned = tracker._clean_text(text)
-        
+
         # Should have spaces after colons: "Chelmsford: Essex"
         assert "Chelmsford: Essex" in cleaned, f"Missing space after colon: {cleaned}"
-        
+
         # Should have spaces between word and number: "Essex 279"
         assert "Essex 279" in cleaned, f"Missing space before number: {cleaned}"
-        
+
         # Should have spaces between number and word: "51-4 no play"
         assert "51-4 no play" in cleaned, f"Missing space after number: {cleaned}"
-        
+
         # Should have spaces between word and number in team: "v Hampshire 162"
         assert "v Hampshire 162" in cleaned, f"Missing space in team score: {cleaned}"
 
@@ -187,7 +187,7 @@ class TestColouriseClause:
         assert "\033[91m" in result  # RED
 
     def test_highlights_capitalised_win(self, tracker):
-        """'Won games should be highlighted in red."""
+        """'Won games should be highlighted in green."""
         clause = "England Win by 100 runs"
         result = tracker._colourise_clause(clause)
         assert "\033[92m" in result  # GREEN
@@ -268,6 +268,35 @@ class TestColouriseText:
         assert "\033[94m" in result or "More rain" in result  # BLUE or plain
         assert "\033[92m" in result or "fifty" in result  # GREEN or plain
         assert "\033[1m" in result or "47th over" in result  # BOLD or plain
+
+
+class TestTeamConfiguration:
+    """Tests for configurable team and venue names."""
+
+    def test_config_loads_venues(self, tmp_path):
+        config_path = tmp_path / "teams.json"
+        config_path.write_text(
+            json.dumps({"international": ["England"], "county": ["Surrey"], "venues": ["Headingley"]})
+        )
+        from obo_follow import load_team_config
+
+        assert load_team_config(config_path)["venues"] == ["Headingley"]
+
+    def test_configured_venue_is_bold(self, tracker):
+        for venue in ("Headingley", "Hove", "Scarborough"):
+            result = tracker._colourise_clause(f"Play resumes at {venue}")
+            assert COLOURS["BOLD"] in result
+
+    def test_config_loads_vitality_blast(self, tmp_path):
+        config_path = tmp_path / "teams.json"
+        config_path.write_text(json.dumps({"vitality_blast": ["Yorkshire Vikings"]}))
+        from obo_follow import load_team_config
+
+        assert load_team_config(config_path)["vitality_blast"] == ["Yorkshire Vikings"]
+
+    def test_configured_vitality_blast_team_is_bold(self, tracker):
+        result = tracker._colourise_clause("Yorkshire Vikings begin their campaign")
+        assert COLOURS["BOLD"] in result
 
 
 class TestLoadSave:
@@ -1124,33 +1153,33 @@ class TestWatchMode:
     def test_watch_timeout_stops_after_max_runtime(self, tracker, monkeypatch):
         """Watch mode should stop after max_runtime_hours elapsed."""
         from time import time
-        
+
         called_count = [0]
         original_fetch = tracker.fetch
-        
+
         def mock_fetch():
             called_count[0] += 1
             if called_count[0] > 5:
                 # Should not reach here if timeout works
                 raise AssertionError("Timeout did not stop the loop")
             return original_fetch()
-        
+
         monkeypatch.setattr(tracker, "fetch", mock_fetch)
-        
+
         # Mock time.time() to simulate elapsed time
         elapsed_times = [0, 1, 2, 3, 4, 5, 1000]  # Jump to 1000s on iteration 7
         time_call_count = [0]
-        
+
         def mock_time():
             result = elapsed_times[min(time_call_count[0], len(elapsed_times) - 1)]
             time_call_count[0] += 1
             return result
-        
+
         monkeypatch.setattr("obo_follow.time", mock_time)
-        
+
         # Max runtime of 10 seconds
         tracker.watch(interval=1, max_runtime_hours=1/360)  # 1/360 hour = 10 seconds
-        
+
         # Should have called fetch only a few times before timeout
         assert called_count[0] <= 5, f"Should have stopped before 5 calls, but made {called_count[0]}"
 
@@ -1158,49 +1187,49 @@ class TestWatchMode:
         """Watch mode should exit gracefully on KeyboardInterrupt."""
         def mock_fetch():
             raise KeyboardInterrupt()
-        
+
         monkeypatch.setattr(tracker, "fetch", mock_fetch)
-        
+
         tracker.watch(interval=1, max_runtime_hours=9)
-        
+
         captured = capsys.readouterr()
         assert "Stopped" in captured.out
-    
+
     def test_watch_prints_updates(self, tracker, monkeypatch, capsys):
         """Watch mode should print fetched updates."""
-        updates = ["Test update 1 is quite long to exceed minimum length", 
+        updates = ["Test update 1 is quite long to exceed minimum length",
                    "Test update 2 is also long enough here"]
         call_count = [0]
-        
+
         def mock_fetch():
             call_count[0] += 1
             if call_count[0] == 1:
                 return updates
             raise KeyboardInterrupt()
-        
+
         monkeypatch.setattr(tracker, "fetch", mock_fetch)
-        
+
         tracker.watch(interval=1, max_runtime_hours=9)
-        
+
         captured = capsys.readouterr()
         assert "Test update 1" in captured.out
         assert "Test update 2" in captured.out
-    
+
     def test_watch_handles_fetch_exception(self, tracker, monkeypatch):
         """Watch mode should catch exceptions in fetch() and continue."""
         call_count = [0]
-        
+
         def mock_fetch():
             call_count[0] += 1
             if call_count[0] == 1:
                 raise ValueError("Test error")
             raise KeyboardInterrupt()
-        
+
         monkeypatch.setattr(tracker, "fetch", mock_fetch)
-        
+
         # Should not raise, should handle the exception and continue
         tracker.watch(interval=1, max_runtime_hours=9)
-        
+
         assert call_count[0] >= 1
 
 
@@ -1222,7 +1251,7 @@ class TestDisplayMethod:
         """display() should handle empty feed gracefully."""
         tracker.feed = []
         tracker.display()
-        
+
         captured = capsys.readouterr()
         assert "No updates yet" in captured.out
         assert "GUARDIAN CRICKET LIVE FEED" in captured.out
@@ -1240,7 +1269,7 @@ class TestDisplayMethod:
             }
         ]
         tracker.display()
-        
+
         captured = capsys.readouterr()
         assert "1st over: England 5-0" in captured.out
         assert "WICKET!" in captured.out
@@ -1257,7 +1286,7 @@ class TestDisplayMethod:
             }
         ]
         tracker.display()
-        
+
         captured = capsys.readouterr()
         # Should show last 30 (Update 20 through Update 49)
         assert "Update 49" in captured.out
@@ -1276,7 +1305,7 @@ class TestDisplayMethod:
             }
         ]
         tracker.display()
-        
+
         captured = capsys.readouterr()
         assert "Valid update" in captured.out
         # Should not crash
@@ -1293,7 +1322,7 @@ class TestDisplayMethod:
             }
         ]
         tracker.display()
-        
+
         captured = capsys.readouterr()
         # Red ANSI code should be present for WICKET
         assert "\033[91m" in captured.out or "WICKET!" in captured.out
@@ -1305,17 +1334,17 @@ class TestWatchMethodHappyPath:
     def test_watch_polls_once_then_timeouts(self, tracker, monkeypatch, capsys):
         """watch() should timeout after max_runtime_hours and exit gracefully."""
         fetch_count = 0
-        
+
         def mock_fetch():
             nonlocal fetch_count
             fetch_count += 1
             return []
-        
+
         monkeypatch.setattr(tracker, "fetch", mock_fetch)
-        
+
         # Run with 0.1 second runtime to timeout quickly
         tracker.watch(interval=0.05, max_runtime_hours=0.001)
-        
+
         captured = capsys.readouterr()
         assert "Timeout:" in captured.out
         assert "runtime reached" in captured.out
@@ -1325,15 +1354,15 @@ class TestWatchMethodHappyPath:
     def test_watch_prints_startup_message(self, tracker, monkeypatch, caplog, capsys):
         """watch() should print wall-clock stop time at startup."""
         import logging
-        
+
         def mock_fetch():
             return []
-        
+
         monkeypatch.setattr(tracker, "fetch", mock_fetch)
-        
+
         with caplog.at_level(logging.INFO):
             tracker.watch(interval=0.01, max_runtime_hours=0.001)
-        
+
         # Check stdout for the print() statement
         captured = capsys.readouterr()
         # Should mention the interval and hours in print output
@@ -1345,18 +1374,18 @@ class TestWatchMethodHappyPath:
     def test_watch_prints_new_updates(self, tracker, monkeypatch, capsys):
         """watch() should print each new update during polling."""
         call_count = 0
-        
+
         def mock_fetch():
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 return ["1st over: England 5-0"]
             return []
-        
+
         monkeypatch.setattr(tracker, "fetch", mock_fetch)
-        
+
         tracker.watch(interval=0.01, max_runtime_hours=0.001)
-        
+
         captured = capsys.readouterr()
         assert "1st over: England 5-0" in captured.out
         assert "-" * 80 in captured.out  # Separator
@@ -1364,15 +1393,15 @@ class TestWatchMethodHappyPath:
     def test_watch_multiple_fetch_cycles(self, tracker, monkeypatch):
         """watch() should continue polling across multiple intervals."""
         fetch_calls = []
-        
+
         def mock_fetch():
             fetch_calls.append(time.time())
             return []
-        
+
         monkeypatch.setattr(tracker, "fetch", mock_fetch)
-        
+
         tracker.watch(interval=0.05, max_runtime_hours=0.002)
-        
+
         # Should have called fetch multiple times
         assert len(fetch_calls) >= 2
 
@@ -1383,21 +1412,21 @@ class TestWatchMethodUnhappyPath:
     def test_watch_handles_fetch_network_error(self, tracker, monkeypatch, capsys):
         """watch() should catch fetch() exceptions and continue polling."""
         import requests
-        
+
         call_count = 0
-        
+
         def mock_fetch():
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 raise requests.ConnectionError("Network unreachable")
             return []
-        
+
         monkeypatch.setattr(tracker, "fetch", mock_fetch)
-        
+
         # Should not crash; should timeout normally
         tracker.watch(interval=0.01, max_runtime_hours=0.001)
-        
+
         captured = capsys.readouterr()
         # Should exit with timeout, not exception
         assert "Timeout:" in captured.out or "runtime reached" in captured.out
@@ -1406,30 +1435,30 @@ class TestWatchMethodUnhappyPath:
         """watch() should catch KeyboardInterrupt and exit cleanly."""
         def mock_fetch():
             raise KeyboardInterrupt()
-        
+
         monkeypatch.setattr(tracker, "fetch", mock_fetch)
-        
+
         # Should not crash; should catch the interrupt
         tracker.watch(interval=0.01, max_runtime_hours=9)
-        
+
         captured = capsys.readouterr()
         assert "Stopped" in captured.out
 
     def test_watch_handles_generic_exception_in_fetch(self, tracker, monkeypatch, capsys):
         """watch() should catch unexpected exceptions in fetch() and continue."""
         call_count = 0
-        
+
         def mock_fetch():
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 raise ValueError("Some unexpected error")
             return []
-        
+
         monkeypatch.setattr(tracker, "fetch", mock_fetch)
-        
+
         tracker.watch(interval=0.01, max_runtime_hours=0.001)
-        
+
         captured = capsys.readouterr()
         # Should continue and timeout, not crash
         assert "Timeout:" in captured.out or "runtime reached" in captured.out
@@ -1444,14 +1473,14 @@ class TestWatchTimeoutPrecision:
         """watch() should stop within ±1 interval of max_runtime_hours."""
         def mock_fetch():
             return []
-        
+
         monkeypatch.setattr(tracker, "fetch", mock_fetch)
-        
+
         start = time.time()
         max_hours = 0.001  # ~3.6 seconds
         tracker.watch(interval=0.1, max_runtime_hours=max_hours)
         elapsed = time.time() - start
-        
+
         # Should be roughly 3.6 seconds, allow 0.2s margin
         expected = max_hours * 3600
         assert elapsed >= expected
@@ -1461,13 +1490,13 @@ class TestWatchTimeoutPrecision:
         """watch() should not sleep after timeout is reached."""
         def mock_fetch():
             return []
-        
+
         monkeypatch.setattr(tracker, "fetch", mock_fetch)
-        
+
         start = time.time()
         tracker.watch(interval=10, max_runtime_hours=0.001)  # Long interval, short timeout
         elapsed = time.time() - start
-        
+
         # Should exit quickly, not wait for the 10-second interval
         assert elapsed < 5  # Much less than 10 seconds
 
@@ -1480,7 +1509,7 @@ class TestFetchOrdering:
     def test_fetch_maintains_chronological_order(self, tracker, monkeypatch):
         """Multiple fetches should maintain chronological order of batches."""
         from unittest.mock import Mock
-        
+
         # First fetch
         tracker.feed = [
             {
@@ -1490,12 +1519,12 @@ class TestFetchOrdering:
             }
         ]
         tracker._save()
-        
+
         # Reload and add second batch (simulating second run)
         tracker2 = tracker.__class__(tracker.url)
         tracker2.log_path = tracker.log_path
         tracker2._load()
-        
+
         # Second fetch adds newer batch
         tracker2.feed.append({
             "fetched_at": "2026-08-31T10:30:00",
@@ -1503,17 +1532,17 @@ class TestFetchOrdering:
             "updates": ["Update C"]
         })
         tracker2._save()
-        
+
         # Third load and verify order
         tracker3 = tracker.__class__(tracker.url)
         tracker3.log_path = tracker.log_path
         tracker3._load()
-        
+
         # Verify batches are in chronological order
         assert len(tracker3.feed) == 2
         assert tracker3.feed[0]["fetched_at"] == "2026-08-31T10:00:00"
         assert tracker3.feed[1]["fetched_at"] == "2026-08-31T10:30:00"
-        
+
         # Verify all updates are present and in order
         all_updates = []
         for batch in tracker3.feed:
@@ -1536,12 +1565,12 @@ class TestFetchOrdering:
             }
         ]
         tracker._save()
-        
+
         # Reload and verify sorting
         tracker2 = tracker.__class__(tracker.url)
         tracker2.log_path = tracker.log_path
         tracker2._load()
-        
+
         # Should be sorted chronologically
         assert tracker2.feed[0]["fetched_at"] == "2026-08-31T10:00:00"
         assert tracker2.feed[1]["fetched_at"] == "2026-08-31T10:30:00"
@@ -1592,7 +1621,7 @@ class TestNoColourEnv:
         """When NO_COLOR is set, _use_colour should be False."""
         monkeypatch.setenv("NO_COLOR", "1")
         monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-        
+
         tracker = CricketFeedTracker("http://example.com")
         assert tracker._use_colour is False
 
@@ -1610,7 +1639,7 @@ class TestInitialisation:
         """Cache path should be derived from URL hash."""
         tracker1 = CricketFeedTracker("https://example.com/test1")
         tracker2 = CricketFeedTracker("https://example.com/test2")
-        
+
         assert tracker1.log_path != tracker2.log_path
         assert "cricket-feed-" in str(tracker1.log_path)
 
@@ -1649,7 +1678,7 @@ class TestMainCLI:
     def test_cli_fetch_command_succeeds(self):
         """CLI fetch command should execute and exit cleanly."""
         import subprocess
-        
+
         result = subprocess.run(
             [
                 sys.executable,
@@ -1660,7 +1689,7 @@ class TestMainCLI:
             capture_output=True,
             timeout=5
         )
-        
+
         # Fetch will fail because example.com isn't a live blog, but CLI should be valid
         assert result.returncode == 0
 
@@ -1668,7 +1697,7 @@ class TestMainCLI:
         """CLI log command should output JSON."""
         import subprocess
         import json
-        
+
         result = subprocess.run(
             [
                 sys.executable,
@@ -1679,7 +1708,7 @@ class TestMainCLI:
             capture_output=True,
             timeout=5
         )
-        
+
         # Should output valid JSON (even if empty list)
         try:
             data = json.loads(result.stdout)
@@ -1786,12 +1815,12 @@ class TestBadLightHighlighting:
     """Tests for bad light stops play."""
 
     def test_bad_light_stops_play(self, tracker):
-        """'bad light stops play' should be orange+bold."""
+        """'bad light stops play' should be purple+bold."""
         clause = "bad light stops play, stumps called"
         result = tracker._colourise_clause(clause)
-        ORANGE = COLOURS["ORANGE"]
+        PURPLE = COLOURS["PURPLE"]
         BOLD = COLOURS["BOLD"]
-        assert ORANGE in result and BOLD in result
+        assert PURPLE in result and BOLD in result
 
     def test_bad_light_case_insensitive(self, tracker):
         """bad light should match any case."""
@@ -1800,10 +1829,10 @@ class TestBadLightHighlighting:
             "Bad Light Stops Play",
             "bad light stops play immediately",
         ]
-        ORANGE = COLOURS["ORANGE"]
+        PURPLE = COLOURS["PURPLE"]
         for clause in tests:
             result = tracker._colourise_clause(clause)
-            assert ORANGE in result, f"Expected {clause!r} to highlight"
+            assert PURPLE in result, f"Expected {clause!r} to highlight"
 
 
 class TestNotOutHighlighting:
@@ -1877,7 +1906,7 @@ class TestFetchUnhappyPath:
                 def raise_for_status(self):
                     raise requests.HTTPError("500 Server Error")
             return FakeResponse()
-        
+
         monkeypatch.setattr(tracker.session, "get", fake_get)
         result = tracker.fetch()
         assert result == []
@@ -1886,7 +1915,7 @@ class TestFetchUnhappyPath:
         """fetch() should return [] and log error on connection refused."""
         def fake_get(*args, **kwargs):
             raise requests.ConnectionError("Connection refused")
-        
+
         monkeypatch.setattr(tracker.session, "get", fake_get)
         result = tracker.fetch()
         assert result == []
@@ -1895,7 +1924,7 @@ class TestFetchUnhappyPath:
         """fetch() should return [] and log error on request timeout."""
         def fake_get(*args, **kwargs):
             raise requests.Timeout("Request timed out")
-        
+
         monkeypatch.setattr(tracker.session, "get", fake_get)
         result = tracker.fetch()
         assert result == []
@@ -1904,7 +1933,7 @@ class TestFetchUnhappyPath:
         """fetch() should return [] on OSError (e.g. disk full)."""
         def fake_extract(*args, **kwargs):
             raise OSError("No space left on device")
-        
+
         monkeypatch.setattr(tracker, "_extract_all_updates", fake_extract)
         result = tracker.fetch()
         assert result == []
@@ -1938,7 +1967,7 @@ class TestExtractUnhappyPath:
         def fake_get(*args, **kwargs):
             raise requests.Timeout("timeout")
         monkeypatch.setattr(tracker.session, "get", fake_get)
-        
+
         with pytest.raises(requests.RequestException):
             tracker._extract_all_updates()
 
@@ -1948,7 +1977,7 @@ class TestExtractUnhappyPath:
             text = "<article class='block'><header><h2>Test</h2></header><p>Invalid\x00char</p></article>"
             def raise_for_status(self):
                 pass
-        
+
         monkeypatch.setattr(tracker.session, "get", lambda *a, **kw: FakeResponse())
         result = tracker._extract_all_updates()
         # Should still extract something (BeautifulSoup is forgiving)
@@ -1957,28 +1986,28 @@ class TestExtractUnhappyPath:
     def test_extract_skips_articles_with_extraction_exceptions(self, tracker, monkeypatch):
         """_extract_all_updates() should skip articles that cause exceptions."""
         from unittest.mock import MagicMock
-        
+
         def fake_get(*args, **kwargs):
             soup_mock = MagicMock()
             # First article works, second raises, third works
             bad_article = MagicMock()
             bad_article.find.side_effect = AttributeError("broken")
-            
+
             good_article = MagicMock()
             good_article.find.return_value.find.return_value.get_text.return_value = "Header"
             good_article.find_all.return_value = [MagicMock(get_text=lambda **kw: "Body")]
-            
+
             soup_mock.find_all.return_value = [good_article, bad_article]
-            
+
             class FakeResponse:
                 text = ""
                 def raise_for_status(self):
                     pass
-            
+
             r = FakeResponse()
             r.text = ""
             return r
-        
+
         monkeypatch.setattr(tracker.session, "get", fake_get)
         # Should not raise, just skip the bad article
         result = tracker._extract_all_updates()
@@ -1990,7 +2019,7 @@ class TestExtractUnhappyPath:
             text = "<article class='block'><header><h2>T</h2></header><p>X</p></article>"
             def raise_for_status(self):
                 pass
-        
+
         monkeypatch.setattr(tracker.session, "get", lambda *a, **kw: FakeResponse())
         result = tracker._extract_all_updates()
         assert result == []  # Too short
@@ -2033,7 +2062,7 @@ class TestSaveLoadUnhappyPath:
         new_path = tmp_path / "sub" / "test.json"
         monkeypatch.setattr(tracker, "log_path", new_path)
         tracker.feed = [{"fetched_at": "2026-08-31T12:00:00", "count": 1, "updates": ["Test"]}]
-        
+
         # Should not raise even though parent doesn't exist (Path.write_text handles it... actually it won't)
         # Let's just verify it doesn't crash with existing directory
         new_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2206,6 +2235,22 @@ class TestComprehensiveCoverage:
         result = tracker._colourise_clause(clause)
         assert COLOURS["GREEN"] in result
 
+    def test_beat_result_is_highlighted_as_one_green_match(self, tracker):
+        """A completed BEAT result should include both teams and its margin."""
+        clause = "Yorkshire BEAT Somerset by 185 runs!"
+        result = tracker._colourise_clause(clause)
+        assert COLOURS["GREEN"] in result
+        assert "Yorkshire BEAT Somerset by 185 runs" in result
+
+    def test_configured_multiword_team_result_is_highlighted(self, tracker):
+        result = tracker._colourise_clause("New Zealand beat South Africa by 7 wickets")
+        assert COLOURS["GREEN"] in result
+        assert "New Zealand beat South Africa by 7 wickets" in result
+
+    def test_unknown_capitalised_words_are_not_a_result(self, tracker):
+        result = tracker._colourise_clause("Yorkshire beat Somersetshire by 185 runs")
+        assert COLOURS["GREEN"] not in result
+
     def test_scoreline_win_different_scores(self, tracker):
         """Various scoreline formats should be highlighted."""
         for win in ["1-0 win", "5-2 win", "10-0 win"]:
@@ -2231,9 +2276,8 @@ class TestComprehensiveCoverage:
         """Trail by without 'runs' keyword should not match."""
         clause = "Pakistan trail by 87"  # Missing 'runs'
         result = tracker._colourise_clause(clause)
-        # Should NOT be italicised (no match)
-        # The clause itself is returned unchanged if no patterns match
-        assert result == clause
+        # It must not use the trail-by italic style, although Pakistan may be bold.
+        assert COLOURS["ITALIC"] not in result
 
     # Boundary splitting tests
     def test_wicket_boundary_not_split_after_double_exclamation(self, tracker):
@@ -2288,3 +2332,82 @@ WICKET!! Root b Archer 75 (England 225 all out) A stunning catch!"""
         assert "Drinks" in result
         assert "WICKET!!" in result
         assert "trail by 85 runs" in result
+
+
+class TestReportedFormattingCases:
+    """Regression tests for reported commentary formatting cases."""
+
+    def test_full_innings_all_out(self, tracker):
+        result = tracker._colourise_clause("Surrey's 115 all out at The Oval")
+        assert COLOURS["RED"] in result
+        assert "Surrey's 115 all out" in result
+
+    def test_team_and_country_names_are_bold(self, tracker):
+        result = tracker._colourise_clause("England beat Pakistan")
+        assert COLOURS["GREEN"] in result
+        assert "England beat Pakistan" in result
+
+    def test_bowling_analysis_is_italic(self, tracker):
+        result = tracker._colourise_clause("Glamorgan's Zain ul Hassan, who took four for 26")
+        assert COLOURS["ITALIC"] in result
+
+    def test_score_groups_are_bold(self, tracker):
+        result = tracker._colourise_clause("Essex 134 v Warwickshire 151-9")
+        assert COLOURS["BOLD"] in result
+
+    def test_dismissal_types_are_red(self, tracker):
+        for text in (
+            "caught by Ben Stokes",
+            "bowled by Ben Cliff",
+            "stumped by the keeper",
+        ):
+            result = tracker._colourise_clause(text)
+            assert COLOURS["RED"] in result
+
+    def test_wicket_tallies_are_highlighted(self, tracker):
+        for text in ("Eight wickets for Ben Cliff", "Eleven wickets in the match for Ben Cliff"):
+            assert COLOURS["GREEN"] in tracker._colourise_clause(text)
+
+    def test_bowling_figures_are_bold(self, tracker):
+        result = tracker._colourise_clause("Ben Cliff (11 for 105)")
+        assert COLOURS["BOLD"] in result
+        assert "Ben Cliff (11 for 105)" in result
+
+    def test_number_word_wicket_tallies_are_supported(self, tracker):
+        for text in ("Eight wickets for Ben Cliff", "Eleven wickets in the match for Ben Cliff"):
+            assert COLOURS["GREEN"] in tracker._colourise_clause(text)
+
+    def test_runs_scored_supports_numbers_and_words(self, tracker):
+        for text in ("25 for Asa Tribe", "Fifty for Asa Tribe", "100 for Asa Tribe"):
+            assert COLOURS["GREEN"] in tracker._colourise_clause(text)
+
+    def test_common_phrase_is_not_a_runs_milestone(self, tracker):
+        result = tracker._colourise_clause("one for us")
+        assert COLOURS["GREEN"] not in result
+
+    def test_break_words(self, tracker):
+        for text in ("Lunchtime", "tea time", "roundup"):
+            result = tracker._colourise_clause(text)
+            assert COLOURS["ITALIC"] in result
+            assert COLOURS["UNDERLINE"] in result
+
+    def test_rain_at_ground_is_highlighted(self, tracker):
+        result = tracker._colourise_clause("Suddenly they're coming off at Headingley for rain")
+        assert COLOURS["BLUE"] in result
+
+    def test_preview_is_not_review(self, tracker):
+        result = tracker._colourise_clause("I meant to post this round preview from Gary Naylor, yesterday.")
+        assert COLOURS["YELLOW"] not in result
+
+    def test_batting_milestones(self, tracker):
+        for text in ("100 for Asa Tribe", "50 for Asa Tribe"):
+            assert COLOURS["GREEN"] in tracker._colourise_clause(text)
+
+    def test_chase_target_includes_score(self, tracker):
+        result = tracker._colourise_clause("Pakistan need 76 to win")
+        assert COLOURS["GREEN"] in result
+        assert "76 to win" in result
+
+    def test_line_breaks_are_preserved(self, tracker):
+        text = "First paragraph.\n\nScore: Northants 126 for one.\nLong passage."
+        assert tracker._clean_text(text).count("\n") == 3

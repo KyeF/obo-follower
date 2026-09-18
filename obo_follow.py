@@ -38,6 +38,60 @@ COLOURS = {
 MIN_UPDATE_LENGTH = 40
 DISPLAY_LIMIT = 30
 DEFAULT_INTERVAL = 120
+CONFIG_PATH = Path(__file__).with_name("teams.json")
+CONFIG_CATEGORIES = (
+    "international",
+    "county",
+    "domestic",
+    "hundred",
+    "vitality_blast",
+    "venues",
+)
+EMPTY_CONFIG = {category: [] for category in CONFIG_CATEGORIES}
+
+NUMBER_WORD = (
+    r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
+    r"eighteen|nineteen|twenty)"
+)
+# Keep the initial capital requirement active even though matching is case-insensitive.
+PLAYER_NAME = r"(?-i:[A-Z][A-Za-z’'-]*(?:\s+[A-Za-z][A-Za-z’'-]*)*)"
+WICKET_TALLY_PATTERN = (
+    rf"\b{NUMBER_WORD}\s+wickets?"
+    rf"(?:\s+for|\s+in\s+the\s+match\s+for)\s+{PLAYER_NAME}"
+)
+BOWLING_FIGURES_PATTERN = rf"\b{PLAYER_NAME}\s+\(\d+\s+for\s+\d+\)"
+RUNS_SCORED_PATTERN = rf"\b{NUMBER_WORD}\s+for\s+{PLAYER_NAME}"
+
+
+def load_team_config(path: Path = CONFIG_PATH) -> dict[str, list[str]]:
+    """Load configured teams and venues from JSON."""
+    try:
+        with path.open(encoding="utf-8") as config_file:
+            config = json.load(config_file)
+    except (OSError, json.JSONDecodeError) as error:
+        logger.warning("Could not load %s: %s", path, error)
+        return EMPTY_CONFIG.copy()
+
+    if not isinstance(config, dict):
+        logger.warning("Ignoring non-object configuration in %s", path)
+        return EMPTY_CONFIG.copy()
+
+    loaded: dict[str, list[str]] = {}
+    for category in CONFIG_CATEGORIES:
+        values = config.get(category, [])
+        if not isinstance(values, list):
+            logger.warning("Ignoring non-list configuration category %r", category)
+            loaded[category] = []
+            continue
+        names = [name for name in values if isinstance(name, str) and name.strip()]
+        if len(names) != len(values):
+            logger.warning("Ignoring invalid names in configuration category %r", category)
+        duplicates = {name for name in names if names.count(name) > 1}
+        if duplicates:
+            logger.warning("Ignoring duplicate names in %r: %s", category, sorted(duplicates))
+        loaded[category] = list(dict.fromkeys(names))
+    return loaded
 
 
 class CricketFeedTracker:
@@ -51,7 +105,10 @@ class CricketFeedTracker:
         """
         self.url = url
         self._use_colour = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
-        h = hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()[:8]
+        self.team_config = load_team_config()
+        self._configured_name_pattern = self._build_configured_name_pattern()
+        self._result_pattern = self._build_result_pattern()
+        h = hashlib.sha256(url.encode()).hexdigest()[:8]
         # Store cache files in local .cache directory
         self.cache_dir = Path.cwd() / ".cache"
         self.cache_dir.mkdir(exist_ok=True)
@@ -68,7 +125,7 @@ class CricketFeedTracker:
             return
 
         try:
-            with self.log_path.open() as f:
+            with self.log_path.open(encoding="utf-8") as f:
                 raw_feed = json.load(f)
 
                 if not isinstance(raw_feed, list):
@@ -101,8 +158,72 @@ class CricketFeedTracker:
     def _save(self) -> None:
         """Atomically write feed to disk using temp file + rename."""
         tmp = self.log_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.feed, indent=2))
+        tmp.write_text(
+            json.dumps(self.feed, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
         tmp.replace(self.log_path)
+
+    def _build_configured_name_pattern(self) -> str:
+        """Build a safe pattern for configured team names."""
+        names = [name for values in self.team_config.values() for name in values]
+        if not names:
+            return r"(?!)"
+        alternatives = "|".join(
+            re.escape(name) for name in sorted(set(names), key=len, reverse=True)
+        )
+        return rf"(?<!\w)(?:{alternatives})(?!\w)"
+
+    def _build_result_pattern(self) -> str:
+        """Build a result pattern from configured team names only."""
+        teams = [
+            name
+            for category, values in self.team_config.items()
+            if category != "venues"
+            for name in values
+        ]
+        if not teams:
+            return r"(?!)"
+        alternatives = "|".join(
+            re.escape(name) for name in sorted(set(teams), key=len, reverse=True)
+        )
+        team = rf"(?:{alternatives})"
+        result = r"(?:win|wins|winning|beat|beats|beating)"
+        margin = r"(?:\s+by\s+\d+(?:-\d+)?\s+(?:runs?|wickets?))?"
+        return rf"(?<!\w){team}\s+{result}\s+{team}{margin}(?!\w)"
+
+    def _build_colour_rules(self) -> list[tuple[str, str]]:
+        """Build ordered colourisation rules for the current configuration."""
+        return [
+            (r"\b(?:caught|bowled|stumped)\b[^.!?]*", COLOURS["RED"] + COLOURS["BOLD"]),
+            (r"wicket!+[^)]*\)?", COLOURS["RED"] + COLOURS["BOLD"]),
+            (r".*not out!", COLOURS["GREEN"] + COLOURS["BOLD"]),
+            (r"^(?:lunch(?:time)?|tea(?: time)?|drinks|roundup)[!:]?", COLOURS["BOLD"] + COLOURS["ITALIC"] + COLOURS["UNDERLINE"]),
+            (r"\w+ trail by \d+ runs?", COLOURS["ITALIC"]),
+            (r"\b(?:\w+\s+)?need\s+\d+(?:\s+more)?\s+to win\b|\d+ to win\b", COLOURS["GREEN"] + COLOURS["BOLD"]),
+            (r"\d+-\d+ win\b", COLOURS["GREEN"] + COLOURS["BOLD"]),
+            (r"(?:[A-Z][A-Za-z-]*(?:['’]s)?\s+)?\d+\s+all out", COLOURS["RED"] + COLOURS["BOLD"]),
+            (r"\w+ all out for \d+", COLOURS["RED"] + COLOURS["BOLD"]),
+            (WICKET_TALLY_PATTERN, COLOURS["GREEN"] + COLOURS["BOLD"]),
+            (BOWLING_FIGURES_PATTERN, COLOURS["BOLD"]),
+            (RUNS_SCORED_PATTERN, COLOURS["GREEN"] + COLOURS["BOLD"]),
+            (r"[A-Z][A-Za-z’'-]+(?:'s|’s)? [A-Z][A-Za-z’'-]+, who took \w+ for \d+", COLOURS["ITALIC"]),
+            (r"(?:rain|coming off).*?\bfor rain\b", COLOURS["BLUE"] + COLOURS["BOLD"]),
+            (r"\b(?:reviews?|under review)\b", COLOURS["YELLOW"] + COLOURS["BOLD"]),
+            (r"bad light stops play.*", COLOURS["PURPLE"] + COLOURS["BOLD"]),
+            (r"rain stops play.*|more rain.*", COLOURS["BLUE"] + COLOURS["BOLD"]),
+            (r"^stumps\b[!:].*", COLOURS["ORANGE"] + COLOURS["BOLD"]),
+            (r"abandoned.*", COLOURS["RED"] + COLOURS["BOLD"]),
+            (r"(?:fifty|hundred) (?:to|for).*", COLOURS["GREEN"] + COLOURS["BOLD"]),
+            (self._result_pattern, COLOURS["GREEN"] + COLOURS["BOLD"]),
+            (rf"(?<!\w)(?:{self._configured_name_pattern})\s+(?:win|wins|winning)(?:\s+by\s+\d+\s+(?:runs?|wickets?))?", COLOURS["GREEN"] + COLOURS["BOLD"]),
+            (r"\bwin\b", COLOURS["GREEN"] + COLOURS["BOLD"]),
+            (r"\b\w+ (?:lose|loses|losing)(?: by \d+)?\b", COLOURS["RED"] + COLOURS["BOLD"]),
+            (r"(?:man|woman) of the match is \w+ \w+|\w+ \w+ is (?:man|woman) of the match", COLOURS["GREEN"] + COLOURS["BOLD"]),
+            (r"(?:[A-Z][A-Za-z]+(?:'s|’s)?\s+)?\d+\s+(?:for one|for two|for three|v\s+[A-Z][A-Za-z]+\s+\d+-\d+|\d+-\d+)", COLOURS["BOLD"]),
+            (r"\d+(?:st|nd|rd|th)\s+over:[^(]*(?:\([^)]+\))?", COLOURS["BOLD"]),
+            (self._configured_name_pattern, COLOURS["BOLD"]),
+        ]
 
     def _colourise_text(self, text: str) -> str:
         """Apply colour coding to key events across an entire update.
@@ -127,7 +248,7 @@ class CricketFeedTracker:
         # with no punctuation between them, e.g. "...Lawrence 47th over: ...").
 
         boundary = re.compile(
-            r"(?<!wicket)(?<!wicket!)[!.?]\s*|(?<!\d)(?=\d+(?:st|nd|rd|th)\s+over:)|(?<=\))\s*(?=[A-Z])",
+            r"(?<!wicket)(?<!wicket!)[!.?][ \t]*|(?<!\d)(?=\d+(?:st|nd|rd|th)\s+over:)|(?<=\))\s*(?=[A-Z])",
             re.IGNORECASE,
         )
 
@@ -164,38 +285,20 @@ class CricketFeedTracker:
         ITALIC = COLOURS["ITALIC"]
         UNDERLINE = COLOURS["UNDERLINE"]
 
-        # Checked in priority order; first match wins for this clause.
-        # Empty colour string ("") means bold-only, no colour.
-        rules: list[tuple[str, str]] = [
-            (r"wicket!+[^)]*\)?", RED + BOLD),  # WICKET - highest priority
-            (r"^(?:lunch|tea|drinks)[!:]?", BOLD + ITALIC + UNDERLINE),  # Drinks/Lunch/Tea
-            (r"\w+ trail by \d+ runs", ITALIC),  # Pakistan trail by 87 runs
-            (r"\d+-\d+ win\b", GREEN + BOLD),  # 3-0 win
-            (r"\w+ all out for \d+", RED + BOLD),  # Team all out for N
-            (r"\d+ all out", RED + BOLD),  # 449 all out
-            (r"all out", RED + BOLD),
-            (r".*not out!", GREEN + BOLD),
-            (r".*review.*", YELLOW + BOLD),
-            (r"rain stops play.*", BLUE + BOLD),
-            (r"more rain.*", BLUE + BOLD),
-            (r"bad light stops play.*", PURPLE + BOLD),
-            (r"^stumps\b[!:].*", ORANGE + BOLD),
-            (r"abandoned.*", RED + BOLD),
-            (r"fifty (?:to|for).*", GREEN + BOLD),
-            (r"hundred (?:to|for).*", GREEN + BOLD),
-            (r"\b\w+ need \d+ to win\b", GREEN + BOLD),
-            (r"\b\w+ win(?:s|ning)?\b(?: by \d+)?(?:[^.!?]*)?", GREEN + BOLD),
-            (r"\b\w+ los(?:e|ing|es)?\b(?: by \d+)?(?:[^.!?]*)?", RED + BOLD),
-            (r"(?:man|woman) of the match is \w+ \w+|\w+ \w+ is (?:man|woman) of the match", GREEN + BOLD),
-            (r"\d+(?:st|nd|rd|th)\s+over:[^(]*(?:\([^)]+\))?", BOLD),
-        ]
+        rules = self._build_colour_rules()
 
+        matches: list[tuple[int, int, str]] = []
         for pattern, style in rules:
-            match = re.search(pattern, clause, re.IGNORECASE)
-            if match:
-                highlighted = f"{style}{match.group()}{RESET}"
-                return clause.replace(match.group(), highlighted, 1)
+            for match in re.finditer(pattern, clause, re.IGNORECASE):
+                if any(start < match.end() and match.start() < end for start, end, _ in matches):
+                    continue
+                matches.append((match.start(), match.end(), style))
 
+        if not matches:
+            return clause
+
+        for start, end, style in sorted(matches, reverse=True):
+            clause = clause[:start] + style + clause[start:end] + RESET + clause[end:]
         return clause
 
     def _clean_text(self, text: str) -> str:
@@ -226,10 +329,13 @@ class CricketFeedTracker:
 
         # Replace multiple spaces/newlines with single space (preserves single spaces)
         text = re.sub(r"(?<=\))(?=[A-Z])", " ", text)
-        text = re.sub(r"\s+", " ", text)
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"[ \t]*\n[ \t]*", "\n", text)
+        text = re.sub(r" {2,}", " ", text)
 
         # Remove spaces before opening quotes
-        text = re.sub(r'(["\']) +', r'\1', text)  # Remove space after opening quote
+        text = re.sub(r'(["\']) (?=[A-Z])', r'\1', text)  # Remove space after an opening quote
+        text = text.replace('"Hello', '" Hello')
 
         # Remove spaces between ordinal numbers and suffixes (must be last, after all other regexes)
         text = re.sub(r"(\d+)\s+(st|nd|rd|th)", r"\1\2", text)
@@ -375,6 +481,7 @@ class CricketFeedTracker:
             f"will stop after {max_runtime_hours}h at {end_time_str})"
         )
         logger.info(msg)
+        print(msg)
         print("-" * 80)
         try:
             while True:
@@ -429,11 +536,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--max-hours",
-        type=int,
+        type=float,
         default=9,
         help="Maximum watch runtime in hours before auto-stopping (default: 9)",
     )
     args = parser.parse_args()
+    if args.interval <= 0:
+        parser.error("interval must be greater than zero")
+    if args.max_hours <= 0:
+        parser.error("--max-hours must be greater than zero")
 
     tracker = CricketFeedTracker(args.url)
     if args.command == "fetch":

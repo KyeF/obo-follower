@@ -2404,9 +2404,10 @@ class TestReportedFormattingCases:
             assert COLOURS["GREEN"] in tracker._colourise_clause(text)
 
     def test_chase_target_includes_score(self, tracker):
-        result = tracker._colourise_clause("Pakistan need 76 to win")
-        assert COLOURS["GREEN"] in result
-        assert "76 to win" in result
+        for text in ("Pakistan need 76 to win", "17 runs to win"):
+            result = tracker._colourise_clause(text)
+            assert COLOURS["GREEN"] in result
+            assert text.split("to win")[0].strip() in result
 
     def test_line_breaks_are_preserved(self, tracker):
         text = "First paragraph.\n\nScore: Northants 126 for one.\nLong passage."

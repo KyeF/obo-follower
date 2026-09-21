@@ -200,7 +200,7 @@ class CricketFeedTracker:
             (r".*not out!", COLOURS["GREEN"] + COLOURS["BOLD"]),
             (r"^(?:lunch(?:time)?|tea(?: time)?|drinks|roundup)[!:]?", COLOURS["BOLD"] + COLOURS["ITALIC"] + COLOURS["UNDERLINE"]),
             (r"\w+ trail by \d+ runs?", COLOURS["ITALIC"]),
-            (r"\b(?:\w+\s+)?need\s+\d+(?:\s+more)?\s+to win\b|\d+ to win\b", COLOURS["GREEN"] + COLOURS["BOLD"]),
+            (r"\b(?:\w+\s+)?(?:need\s+)?\d+\s+(?:runs?\s+)?to win\b", COLOURS["GREEN"] + COLOURS["BOLD"]),
             (r"\d+-\d+ win\b", COLOURS["GREEN"] + COLOURS["BOLD"]),
             (r"(?:[A-Z][A-Za-z-]*(?:['’]s)?\s+)?\d+\s+all out", COLOURS["RED"] + COLOURS["BOLD"]),
             (r"\w+ all out for \d+", COLOURS["RED"] + COLOURS["BOLD"]),

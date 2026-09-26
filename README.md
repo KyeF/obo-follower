@@ -20,11 +20,19 @@ pip install -r requirements.txt
 python3 obo_follow.py "https://www.theguardian.com/sport/live/2026/aug/29/england-v-pakistan-second-mens-cricket-test-day-three-live" fetch
 ```
 
+The short alias `f` is equivalent to `fetch`:
+
+```bash
+python3 obo_follow.py <url> f
+```
+
 ### Watch for new updates every 120 seconds (default)
 
 ```bash
 python3 obo_follow.py "https://www.theguardian.com/sport/live/2026/aug/29/england-v-pakistan-second-mens-cricket-test-day-three-live" watch
 ```
+
+The short alias `w` is equivalent to `watch`.
 
 ### Watch with custom polling interval (e.g., every 60 seconds)
 
@@ -38,10 +46,23 @@ python3 obo_follow.py "https://www.theguardian.com/sport/live/2026/aug/29/englan
 python3 obo_follow.py "https://www.theguardian.com/sport/live/2026/aug/29/england-v-pakistan-second-mens-cricket-test-day-three-live" watch --max-hours 4
 ```
 
+The short alias `-m` is equivalent to `--max-hours`.
+
 ### Dump the full JSON cache
 
 ```bash
 python3 obo_follow.py "https://www.theguardian.com/sport/live/2026/aug/29/england-v-pakistan-second-mens-cricket-test-day-three-live" log
+```
+
+The short alias `l` is equivalent to `log`.
+
+### Highlight a followed team
+
+Pass a team name or phrase with `--follow-team` (or `-t`) to highlight it in yellow and bold. Matching is case-insensitive and supports multi-word names:
+
+```bash
+python3 obo_follow.py <url> watch --follow-team "Yorkshire Vikings"
+python3 obo_follow.py <url> w -t "Yorkshire Vikings"
 ```
 
 ### Suppress ANSI colour codes
@@ -113,15 +134,18 @@ Each URL gets its own file (hash-based), allowing simultaneous tracking of multi
 ## CLI Arguments
 
 ```
-usage: obo_follow.py [-h] url command [interval]
+usage: obo_follow.py [-h] [-t FOLLOW_TEAM] [-m MAX_HOURS] url command [interval]
 
 positional arguments:
   url                       URL of the Guardian live blog page
-  command                   fetch (poll once), watch (poll repeatedly), or log (dump JSON)
+  command                   fetch/f (poll once), watch/w (poll repeatedly), or log/l (dump JSON)
   interval                  Polling interval in seconds for watch mode (default: 120)
 
 optional arguments:
-  --max-hours MAX_HOURS     Maximum watch runtime in hours before auto-stopping (default: 9)
+  -t, --follow-team FOLLOW_TEAM
+                            Team name or phrase to highlight in yellow and bold
+  -m, --max-hours MAX_HOURS
+                            Maximum watch runtime in hours before auto-stopping (default: 9)
   -h, --help                show this help message and exit
 ```
 

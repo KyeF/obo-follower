@@ -29,6 +29,7 @@ COLOURS = {
     "BLUE": "\033[94m",
     "ORANGE": "\033[38;5;208m",
     "PURPLE": "\033[95m",
+    "MAGENTA": "\033[95m",
     "RESET": "\033[0m",
     "BOLD": "\033[1m",
     "ITALIC": "\033[3m",
@@ -50,9 +51,10 @@ CONFIG_CATEGORIES = (
 EMPTY_CONFIG = {category: [] for category in CONFIG_CATEGORIES}
 
 NUMBER_WORD = (
-    r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"(?:\d+|one hundred|two hundred|one|two|three|four|five|six|seven|eight|nine|ten|"
     r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
-    r"eighteen|nineteen|twenty)"
+    r"eighteen|nineteen|twenty|thirty|forty|"
+    r"fifty|sixty|seventy|eighty|ninety)"
 )
 # Keep the initial capital requirement active even though matching is case-insensitive.
 PLAYER_NAME = r"(?-i:[A-Z][A-Za-z’'-]*(?:\s+[A-Za-z][A-Za-z’'-]*)*)"
@@ -62,6 +64,10 @@ WICKET_TALLY_PATTERN = (
 )
 BOWLING_FIGURES_PATTERN = rf"\b{PLAYER_NAME}\s+\(\d+\s+for\s+\d+\)"
 RUNS_SCORED_PATTERN = rf"\b{NUMBER_WORD}\s+for\s+{PLAYER_NAME}"
+MILESTONE_REACHED_PATTERN = (
+    rf"\b{PLAYER_NAME}\s+(?:reaches?|gets? to|brings? up)\s+"
+    rf"(?:daddy\s+hundred|double\s+century|double\s+hundred|century|hundred|{NUMBER_WORD})\b"
+)
 
 
 def load_team_config(path: Path = CONFIG_PATH) -> dict[str, list[str]]:
@@ -97,13 +103,14 @@ def load_team_config(path: Path = CONFIG_PATH) -> dict[str, list[str]]:
 class CricketFeedTracker:
     """Fetch and persist updates from a Guardian live cricket blog."""
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, followed_team: str | None = None) -> None:
         """Initialise tracker with URL and set up persistent storage.
 
         Args:
             url: The Guardian live blog URL to track.
         """
         self.url = url
+        self.followed_team = followed_team
         self._use_colour = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
         self.team_config = load_team_config()
         self._configured_name_pattern = self._build_configured_name_pattern()
@@ -195,10 +202,14 @@ class CricketFeedTracker:
     def _build_colour_rules(self) -> list[tuple[str, str]]:
         """Build ordered colourisation rules for the current configuration."""
         return [
-            (r"\b(?:caught|bowled|stumped)\b[^.!?]*", COLOURS["RED"] + COLOURS["BOLD"]),
+            (r"\b(?:caught\s+(?:by|at)|stumped\s+by|bowled\s+(?:by|out))[^!?]*", COLOURS["RED"] + COLOURS["BOLD"]),
+            (r"\b(?:has\s+)?picked up an early wicket\b[^!?]*", COLOURS["RED"] + COLOURS["BOLD"]),
+            (r"\bnicked off\b[^!?]*", COLOURS["RED"] + COLOURS["BOLD"]),
+            (r"^.*\bwicket!+", COLOURS["RED"] + COLOURS["BOLD"]),
             (r"wicket!+[^)]*\)?", COLOURS["RED"] + COLOURS["BOLD"]),
             (r".*not out!", COLOURS["GREEN"] + COLOURS["BOLD"]),
-            (r"^(?:lunch(?:time)?|tea(?: time)?|drinks|roundup)[!:]?", COLOURS["BOLD"] + COLOURS["ITALIC"] + COLOURS["UNDERLINE"]),
+            (r"^(?:lunch(?:time)?|tea(?: time)?|drinks|roundup)\b[!:]?", COLOURS["BOLD"] + COLOURS["ITALIC"] + COLOURS["UNDERLINE"]),
+            (r"\b(?:the\s+)?toss\s+and\s+(?:bat|bowl)\s+first\b", COLOURS["GREEN"] + COLOURS["BOLD"]),
             (r"\w+ trail by \d+ runs?", COLOURS["ITALIC"]),
             (r"\b(?:\w+\s+)?(?:need\s+)?\d+\s+(?:runs?\s+)?to win\b", COLOURS["GREEN"] + COLOURS["BOLD"]),
             (r"\d+-\d+ win\b", COLOURS["GREEN"] + COLOURS["BOLD"]),
@@ -207,6 +218,7 @@ class CricketFeedTracker:
             (WICKET_TALLY_PATTERN, COLOURS["GREEN"] + COLOURS["BOLD"]),
             (BOWLING_FIGURES_PATTERN, COLOURS["BOLD"]),
             (RUNS_SCORED_PATTERN, COLOURS["GREEN"] + COLOURS["BOLD"]),
+            (MILESTONE_REACHED_PATTERN, COLOURS["GREEN"] + COLOURS["BOLD"]),
             (r"[A-Z][A-Za-z’'-]+(?:'s|’s)? [A-Z][A-Za-z’'-]+, who took \w+ for \d+", COLOURS["ITALIC"]),
             (r"(?:rain|coming off).*?\bfor rain\b", COLOURS["BLUE"] + COLOURS["BOLD"]),
             (r"\b(?:reviews?|under review)\b", COLOURS["YELLOW"] + COLOURS["BOLD"]),
@@ -221,8 +233,9 @@ class CricketFeedTracker:
             (r"\b\w+ (?:lose|loses|losing)(?: by \d+)?\b", COLOURS["RED"] + COLOURS["BOLD"]),
             (r"(?:man|woman) of the match is \w+ \w+|\w+ \w+ is (?:man|woman) of the match", COLOURS["GREEN"] + COLOURS["BOLD"]),
             (r"(?:[A-Z][A-Za-z]+(?:'s|’s)?\s+)?\d+\s+(?:for one|for two|for three|v\s+[A-Z][A-Za-z]+\s+\d+-\d+|\d+-\d+)", COLOURS["BOLD"]),
+            (r"\b\d+\.\d+\s+overs?\b", COLOURS["BOLD"]),
             (r"\d+(?:st|nd|rd|th)\s+over:[^(]*(?:\([^)]+\))?", COLOURS["BOLD"]),
-            (self._configured_name_pattern, COLOURS["BOLD"]),
+            (rf"(?<!\w)(?:{self._configured_name_pattern})(?!\s*:)", COLOURS["BOLD"]),
         ]
 
     def _colourise_text(self, text: str) -> str:
@@ -248,7 +261,7 @@ class CricketFeedTracker:
         # with no punctuation between them, e.g. "...Lawrence 47th over: ...").
 
         boundary = re.compile(
-            r"(?<!wicket)(?<!wicket!)[!.?][ \t]*|(?<!\d)(?=\d+(?:st|nd|rd|th)\s+over:)|(?<=\))\s*(?=[A-Z])",
+            r"(?<!wicket)(?<!wicket!)(?<!\d)[!.?][ \t]*|(?<!\d)(?=\d+(?:st|nd|rd|th)\s+over:)|(?<=\))\s*(?=[A-Z])",
             re.IGNORECASE,
         )
 
@@ -286,6 +299,9 @@ class CricketFeedTracker:
         UNDERLINE = COLOURS["UNDERLINE"]
 
         rules = self._build_colour_rules()
+        if self.followed_team:
+            followed_pattern = rf"(?<!\w){re.escape(self.followed_team)}(?!\w)"
+            rules.insert(0, (followed_pattern, COLOURS["YELLOW"] + BOLD))
 
         matches: list[tuple[int, int, str]] = []
         for pattern, style in rules:
@@ -524,8 +540,8 @@ def main() -> None:
     parser.add_argument("url", help="URL of the Guardian live blog page")
     parser.add_argument(
         "command",
-        choices=["fetch", "watch", "log"],
-        help="fetch: poll once and display; watch: poll repeatedly; log: dump JSON log",
+        choices=["fetch", "f", "watch", "w", "log", "l"],
+        help="fetch/f: poll once; watch/w: poll repeatedly; log/l: dump JSON log",
     )
     parser.add_argument(
         "interval",
@@ -535,6 +551,12 @@ def main() -> None:
         help="Polling interval in seconds for watch mode (default: 120)",
     )
     parser.add_argument(
+        "-t",
+        "--follow-team",
+        help="Team name or phrase to highlight in cyan and bold",
+    )
+    parser.add_argument(
+        "-m",
         "--max-hours",
         type=float,
         default=9,
@@ -546,11 +568,11 @@ def main() -> None:
     if args.max_hours <= 0:
         parser.error("--max-hours must be greater than zero")
 
-    tracker = CricketFeedTracker(args.url)
-    if args.command == "fetch":
+    tracker = CricketFeedTracker(args.url, followed_team=args.follow_team)
+    if args.command in ("fetch", "f"):
         tracker.fetch()
         tracker.display()
-    elif args.command == "watch":
+    elif args.command in ("watch", "w"):
         tracker.watch(args.interval, max_runtime_hours=args.max_hours)
     else:  # log
         print(json.dumps(tracker.feed, indent=2))

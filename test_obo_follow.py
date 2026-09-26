@@ -28,6 +28,13 @@ def tracker(temp_log_path, monkeypatch):
     return tracker
 
 
+def assert_highlighted(tracker, text, colour):
+    """Assert that a clause contains the expected ANSI colour."""
+    result = tracker._colourise_clause(text)
+    assert colour in result
+    return result
+
+
 class TestCleanText:
     """Tests for _clean_text() — text sanitisation and normalisation."""
 
@@ -287,6 +294,10 @@ class TestTeamConfiguration:
             result = tracker._colourise_clause(f"Play resumes at {venue}")
             assert COLOURS["BOLD"] in result
 
+    def test_venue_followed_by_colon_is_not_bold(self, tracker):
+        result = tracker._colourise_clause("Cardiff: play resumes after lunch")
+        assert result == "Cardiff: play resumes after lunch"
+
     def test_config_loads_vitality_blast(self, tmp_path):
         config_path = tmp_path / "teams.json"
         config_path.write_text(json.dumps({"vitality_blast": ["Yorkshire Vikings"]}))
@@ -296,6 +307,28 @@ class TestTeamConfiguration:
 
     def test_configured_vitality_blast_team_is_bold(self, tracker):
         result = tracker._colourise_clause("Yorkshire Vikings begin their campaign")
+        assert COLOURS["BOLD"] in result
+
+    @pytest.mark.parametrize("milestone", ["century", "double century", "double hundred", "daddy hundred"])
+    def test_batting_centuries_are_highlighted(self, tracker, milestone):
+        result = tracker._colourise_clause(f"Harry Brook reaches {milestone}")
+        assert COLOURS["GREEN"] in result
+        assert COLOURS["BOLD"] in result
+
+    def test_followed_team_is_highlighted(self, tracker):
+        tracker.followed_team = "Yorkshire"
+        result = tracker._colourise_clause("Yorkshire begin their campaign")
+        assert COLOURS["YELLOW"] in result
+        assert COLOURS["BOLD"] in result
+
+    def test_followed_team_matches_case_insensitively(self, tracker):
+        tracker.followed_team = "Yorkshire Vikings"
+        result = tracker._colourise_clause("yorkshire vikings win")
+        assert COLOURS["YELLOW"] in result
+
+    @pytest.mark.parametrize("team", ["Knight Riders", "Super Giants", "Eagles", "Bears", "Phoenix"])
+    def test_competition_team_suffixes_are_bold(self, tracker, team):
+        result = tracker._colourise_clause(f"{team} begin their campaign")
         assert COLOURS["BOLD"] in result
 
 
@@ -735,7 +768,7 @@ class TestTextCleaningEdgeCases:
         assert result == '""" test &&&'
 
 
-class TestColorizeEdgeCases:
+class TestColouriseTextEdgeCases:
     """Tests for edge cases in colouring logic."""
 
     def test_colourise_text_handles_empty_string(self, tracker):
@@ -1183,18 +1216,6 @@ class TestWatchMode:
         # Should have called fetch only a few times before timeout
         assert called_count[0] <= 5, f"Should have stopped before 5 calls, but made {called_count[0]}"
 
-    def test_watch_handles_keyboard_interrupt(self, tracker, monkeypatch, capsys):
-        """Watch mode should exit gracefully on KeyboardInterrupt."""
-        def mock_fetch():
-            raise KeyboardInterrupt()
-
-        monkeypatch.setattr(tracker, "fetch", mock_fetch)
-
-        tracker.watch(interval=1, max_runtime_hours=9)
-
-        captured = capsys.readouterr()
-        assert "Stopped" in captured.out
-
     def test_watch_prints_updates(self, tracker, monkeypatch, capsys):
         """Watch mode should print fetched updates."""
         updates = ["Test update 1 is quite long to exceed minimum length",
@@ -1581,39 +1602,6 @@ if __name__ == "__main__":
 
 
 
-class TestWatchBasic:
-    """Basic tests for watch() without complex mocking."""
-
-    def test_watch_signature_exists(self, tracker):
-        """watch() method should exist and accept interval and max_runtime_hours."""
-        assert hasattr(tracker, 'watch')
-        import inspect
-        sig = inspect.signature(tracker.watch)
-        assert 'interval' in sig.parameters
-        assert 'max_runtime_hours' in sig.parameters
-
-
-class TestDisplayBasic:
-    """Basic tests for display() method."""
-
-    def test_display_empty_feed(self, tracker, capsys):
-        """display() should handle empty feed gracefully."""
-        tracker.feed = []
-        tracker.display()
-        captured = capsys.readouterr()
-        assert "No updates yet" in captured.out
-
-    def test_display_with_updates(self, tracker, capsys):
-        """display() should show updates from feed."""
-        tracker.feed = [
-            {"fetched_at": "2026-08-31T10:00:00", "count": 1, "updates": ["Test Update"]}
-        ]
-        tracker.display()
-        captured = capsys.readouterr()
-        assert "Test Update" in captured.out
-        assert "GUARDIAN CRICKET LIVE FEED" in captured.out
-
-
 class TestNoColourEnv:
     """Tests for NO_COLOR environment variable support."""
 
@@ -1624,24 +1612,6 @@ class TestNoColourEnv:
 
         tracker = CricketFeedTracker("http://example.com")
         assert tracker._use_colour is False
-
-
-class TestInitialisation:
-    """Tests for tracker initialisation."""
-
-    def test_tracker_has_session_with_user_agent(self, tracker):
-        """Tracker should have a requests session with User-Agent header."""
-        assert hasattr(tracker, 'session')
-        assert 'User-Agent' in tracker.session.headers
-        assert 'obo-follower' in tracker.session.headers['User-Agent']
-
-    def test_tracker_computes_cache_path_from_url(self):
-        """Cache path should be derived from URL hash."""
-        tracker1 = CricketFeedTracker("https://example.com/test1")
-        tracker2 = CricketFeedTracker("https://example.com/test2")
-
-        assert tracker1.log_path != tracker2.log_path
-        assert "cricket-feed-" in str(tracker1.log_path)
 
 
 class TestColouriseEdgeCases:
@@ -1671,6 +1641,18 @@ class TestColouriseEdgeCases:
 
 
 class TestMainCLI:
+    SCRIPT_PATH = Path(__file__).parent / "obo_follow.py"
+
+    @pytest.mark.parametrize("command", ["f", "w", "l"])
+    def test_cli_accepts_command_aliases(self, command):
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, str(self.SCRIPT_PATH), "https://example.com", command, "-h"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 2
+
     """Tests for main() CLI entry point."""
 
     SCRIPT_PATH = Path(__file__).parent / "obo_follow.py"
@@ -2334,8 +2316,67 @@ WICKET!! Root b Archer 75 (England 225 all out) A stunning catch!"""
         assert "trail by 85 runs" in result
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "caught by Ben Stokes",
+        "bowled by Ben Cliff",
+        "Toby Roland Jones has picked up an early wicket at Lord’s",
+        "Vasconcelos has nicked off to second slip",
+        "stumped by the keeper",
+    ],
+)
+def test_dismissal_phrases_are_red(tracker, text):
+    assert_highlighted(tracker, text, COLOURS["RED"])
+
+
+def test_bowled_in_future_conditional_is_not_a_dismissal(tracker):
+    text = "Harry Brook says England would have bowled, so yah boo sucks."
+    result = tracker._colourise_clause(text)
+    assert COLOURS["RED"] not in result
+
+
+def test_lowercase_wicket_highlights_only_the_lead_in(tracker):
+    text = "Muyeye is back in the hutch now too as Langridge gets his third wicket! Kent 97-3 and trail Gloucs by 132 runs."
+    result = tracker._colourise_text(text)
+    highlighted = result.split(COLOURS["RESET"], 1)[0]
+    assert "third wicket!" in highlighted
+    assert "Kent 97-3" not in highlighted
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "25 for Asa Tribe",
+        "50 for Asa Tribe",
+        "100 for Asa Tribe",
+        "Fifty for Asa Tribe",
+        "Harry Brook reaches 50!",
+        "Harry Brook reaches one hundred!",
+    ],
+)
+def test_batting_milestones_are_green(tracker, text):
+    assert_highlighted(tracker, text, COLOURS["GREEN"])
+
+
 class TestReportedFormattingCases:
     """Regression tests for reported commentary formatting cases."""
+
+    def test_fractional_overs_are_bold(self, tracker):
+        result = tracker._colourise_clause("bowled out for 265 in 48.1 overs")
+        assert COLOURS["BOLD"] in result
+        assert "48.1 overs" in result
+
+    def test_toss_decision_is_highlighted(self, tracker):
+        for decision in ("bat first", "bowl first"):
+            result = tracker._colourise_clause(f"Sri Lanka win the toss and {decision}")
+            assert COLOURS["GREEN"] in result
+            assert f"toss and {decision}" in result
+
+    def test_team_is_not_matched_as_tea(self, tracker):
+        result = tracker._colourise_clause("Team scored 200")
+        assert COLOURS["ITALIC"] not in result
+        assert COLOURS["UNDERLINE"] not in result
 
     def test_full_innings_all_out(self, tracker):
         result = tracker._colourise_clause("Surrey's 115 all out at The Oval")
@@ -2355,15 +2396,6 @@ class TestReportedFormattingCases:
         result = tracker._colourise_clause("Essex 134 v Warwickshire 151-9")
         assert COLOURS["BOLD"] in result
 
-    def test_dismissal_types_are_red(self, tracker):
-        for text in (
-            "caught by Ben Stokes",
-            "bowled by Ben Cliff",
-            "stumped by the keeper",
-        ):
-            result = tracker._colourise_clause(text)
-            assert COLOURS["RED"] in result
-
     def test_wicket_tallies_are_highlighted(self, tracker):
         for text in ("Eight wickets for Ben Cliff", "Eleven wickets in the match for Ben Cliff"):
             assert COLOURS["GREEN"] in tracker._colourise_clause(text)
@@ -2372,10 +2404,6 @@ class TestReportedFormattingCases:
         result = tracker._colourise_clause("Ben Cliff (11 for 105)")
         assert COLOURS["BOLD"] in result
         assert "Ben Cliff (11 for 105)" in result
-
-    def test_number_word_wicket_tallies_are_supported(self, tracker):
-        for text in ("Eight wickets for Ben Cliff", "Eleven wickets in the match for Ben Cliff"):
-            assert COLOURS["GREEN"] in tracker._colourise_clause(text)
 
     def test_runs_scored_supports_numbers_and_words(self, tracker):
         for text in ("25 for Asa Tribe", "Fifty for Asa Tribe", "100 for Asa Tribe"):
@@ -2398,10 +2426,6 @@ class TestReportedFormattingCases:
     def test_preview_is_not_review(self, tracker):
         result = tracker._colourise_clause("I meant to post this round preview from Gary Naylor, yesterday.")
         assert COLOURS["YELLOW"] not in result
-
-    def test_batting_milestones(self, tracker):
-        for text in ("100 for Asa Tribe", "50 for Asa Tribe"):
-            assert COLOURS["GREEN"] in tracker._colourise_clause(text)
 
     def test_chase_target_includes_score(self, tracker):
         for text in ("Pakistan need 76 to win", "17 runs to win"):

@@ -240,11 +240,9 @@ class CricketFeedTracker:
         ]
 
     def _print_updates(self, updates: list[str]) -> None:
-        """Print updates as one sequence framed and separated by horizontal rules."""
-        output = "\n---\n\n" + "\n\n---\n\n".join(
-            self._colourise_text(update) for update in updates
-        ) + "\n\n---\n"
-        print(output)
+        """Print one or more updates with a separator before each update."""
+        for update in updates:
+            print(f"\n---\n\n{self._colourise_text(update)}")
 
     def _colourise_text(self, text: str) -> str:
         """Apply colour coding to key events across an entire update.

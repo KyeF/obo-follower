@@ -1298,9 +1298,10 @@ class TestDisplayMethod:
         assert "WICKET!" in captured.out
         first = captured.out.index("1st over: England 5-0")
         second = captured.out.index("WICKET!")
-        assert "\n---\n\n" in captured.out[:first]
-        assert "\n\n---\n\n" in captured.out[first:second]
-        assert "\n\n---\n" in captured.out[second + len("WICKET!"):]
+        assert captured.out.count("\n---\n\n") == 2
+        assert captured.out.index("\n---\n\n") < first
+        assert first < captured.out.index("\n---\n\n", first) < second
+        assert "\n---\n\n" not in captured.out[second + len("WICKET!"):]
 
     def test_display_limits_to_last_30(self, tracker, capsys):
         """display() should limit output to last DISPLAY_LIMIT updates."""
@@ -1415,8 +1416,9 @@ class TestWatchMethodHappyPath:
 
         captured = capsys.readouterr()
         update = captured.out.index("1st over: England 5-0")
-        assert "\n---\n\n" in captured.out[:update]
-        assert "\n\n---\n" in captured.out[update:]
+        assert captured.out.count("\n---\n\n") == 1
+        assert captured.out.index("\n---\n\n") < update
+        assert "\n---\n\n" not in captured.out[update:]
 
     def test_watch_multiple_fetch_cycles(self, tracker, monkeypatch):
         """watch() should continue polling across multiple intervals."""

@@ -65,8 +65,9 @@ WICKET_TALLY_PATTERN = (
 BOWLING_FIGURES_PATTERN = rf"\b{PLAYER_NAME}\s+\(\d+\s+for\s+\d+\)"
 RUNS_SCORED_PATTERN = rf"\b{NUMBER_WORD}\s+for\s+{PLAYER_NAME}"
 MILESTONE_REACHED_PATTERN = (
-    rf"\b{PLAYER_NAME}\s+(?:reaches?|gets? to|brings? up)\s+"
-    rf"(?:daddy\s+hundred|double\s+century|double\s+hundred|century|hundred|{NUMBER_WORD})\b"
+    rf"\b(?:{PLAYER_NAME}\s+(?:reaches?|gets? to|brings? up)\s+"
+    rf"(?:daddy\s+hundred|double\s+centur(?:y|ies)|double\s+hundreds?|centur(?:y|ies)|hundreds?|{NUMBER_WORD})"
+    rf"|(?:double\s+centur(?:y|ies)|centur(?:y|ies))\s+for\s+{PLAYER_NAME})\b"
 )
 
 
@@ -205,8 +206,8 @@ class CricketFeedTracker:
             (r"\b(?:caught\s+(?:by|at)|stumped\s+by|bowled\s+(?:by|out))[^!?]*", COLOURS["RED"] + COLOURS["BOLD"]),
             (r"\b(?:has\s+)?picked up an early wicket\b[^!?]*", COLOURS["RED"] + COLOURS["BOLD"]),
             (r"\bnicked off\b[^!?]*", COLOURS["RED"] + COLOURS["BOLD"]),
-            (r"^.*\bwicket!+", COLOURS["RED"] + COLOURS["BOLD"]),
-            (r"wicket!+[^)]*\)?", COLOURS["RED"] + COLOURS["BOLD"]),
+            (r"^.*(?-i:\bWICKET)!+[^)]*\)?", COLOURS["RED"] + COLOURS["BOLD"]),
+            (r"^.*(?<![A-Za-z])wicket!+", COLOURS["RED"] + COLOURS["BOLD"]),
             (r".*not out!", COLOURS["GREEN"] + COLOURS["BOLD"]),
             (r"^(?:lunch(?:time)?|tea(?: time)?|drinks|roundup)\b[!:]?", COLOURS["BOLD"] + COLOURS["ITALIC"] + COLOURS["UNDERLINE"]),
             (r"\b(?:the\s+)?toss\s+and\s+(?:bat|bowl)\s+first\b", COLOURS["GREEN"] + COLOURS["BOLD"]),
@@ -238,6 +239,12 @@ class CricketFeedTracker:
             (rf"(?<!\w)(?:{self._configured_name_pattern})(?!\s*:)", COLOURS["BOLD"]),
         ]
 
+    def _print_update(self, text: str) -> None:
+        """Print one update separated by horizontal rules and blank lines."""
+        print("\n---\n")
+        print(self._colourise_text(text))
+        print("\n---\n")
+
     def _colourise_text(self, text: str) -> str:
         """Apply colour coding to key events across an entire update.
 
@@ -261,7 +268,7 @@ class CricketFeedTracker:
         # with no punctuation between them, e.g. "...Lawrence 47th over: ...").
 
         boundary = re.compile(
-            r"(?<!wicket)(?<!wicket!)(?<!\d)[!.?][ \t]*|(?<!\d)(?=\d+(?:st|nd|rd|th)\s+over:)|(?<=\))\s*(?=[A-Z])",
+            r"(?<!wicket)(?<!wicket!)(?<!\d)[!.?](?!\d)[ \t]*|(?<!\d)(?=\d+(?:st|nd|rd|th)\s+over:)|(?<=\))\s*(?=[A-Z])",
             re.IGNORECASE,
         )
 
@@ -473,10 +480,8 @@ class CricketFeedTracker:
 
         print(f"\n📊 Total updates: {len(all_updates)}\n")
 
-        for upd in all_updates[-DISPLAY_LIMIT:]:
-            colourised = self._colourise_text(upd)
-            print(colourised)
-            print("-" * 80)
+        for update in all_updates[-DISPLAY_LIMIT:]:
+            self._print_update(update)
 
     def watch(self, interval: int = DEFAULT_INTERVAL, max_runtime_hours: int = 9) -> None:
         """Poll the live blog repeatedly and print new updates.
@@ -512,9 +517,7 @@ class CricketFeedTracker:
 
                 # Print only the new updates returned by fetch()
                 for update in new_updates:
-                    colourised = self._colourise_text(update)
-                    print(colourised)
-                    print("-" * 80)
+                    self._print_update(update)
 
                 # Check timeout before sleeping
                 elapsed = time() - start_time

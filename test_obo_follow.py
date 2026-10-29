@@ -309,9 +309,11 @@ class TestTeamConfiguration:
         result = tracker._colourise_clause("Yorkshire Vikings begin their campaign")
         assert COLOURS["BOLD"] in result
 
-    @pytest.mark.parametrize("milestone", ["century", "double century", "double hundred", "daddy hundred"])
+    @pytest.mark.parametrize("milestone", ["century", "centuries", "double century", "double centuries", "double hundred", "daddy hundred", "centuries for Elgar", "double centuries for Lammonby and Abell"])
     def test_batting_centuries_are_highlighted(self, tracker, milestone):
-        result = tracker._colourise_clause(f"Harry Brook reaches {milestone}")
+        result = tracker._colourise_clause(
+            milestone if " for " in milestone else f"Harry Brook reaches {milestone}"
+        )
         assert COLOURS["GREEN"] in result
         assert COLOURS["BOLD"] in result
 
@@ -1295,6 +1297,9 @@ class TestDisplayMethod:
         assert "1st over: England 5-0" in captured.out
         assert "WICKET!" in captured.out
         assert "Total updates: 2" in captured.out
+        assert "\n---\n\n" in captured.out
+        assert "1st over: England 5-0" in captured.out
+        assert "\n\n---\n\n" in captured.out
 
     def test_display_limits_to_last_30(self, tracker, capsys):
         """display() should limit output to last DISPLAY_LIMIT updates."""
@@ -1409,7 +1414,9 @@ class TestWatchMethodHappyPath:
 
         captured = capsys.readouterr()
         assert "1st over: England 5-0" in captured.out
-        assert "-" * 80 in captured.out  # Separator
+        assert "\n---\n\n" in captured.out
+        assert "1st over: England 5-0" in captured.out
+        assert "\n\n---\n\n" in captured.out
 
     def test_watch_multiple_fetch_cycles(self, tracker, monkeypatch):
         """watch() should continue polling across multiple intervals."""
@@ -2137,12 +2144,15 @@ class TestComprehensiveCoverage:
         assert COLOURS["RED"] in result
 
     def test_wicket_priority_over_all_out(self, tracker):
-        """WICKET clause should take priority over numeric all out."""
-        clause = "WICKET!! Root b Archer 100 (England 299 all out)"
+        """WICKET headline is highlighted through its first closing parenthesis."""
+        clause = "WICKET!! Root b Archer 100 (England 299 all out) extra text"
         result = tracker._colourise_clause(clause)
-        # Check that WICKET is highlighted (the entire clause)
-        assert "WICKET!!" in result
-        assert COLOURS["RED"] in result
+        expected = f"{COLOURS['RED']}{COLOURS['BOLD']}WICKET!! Root b Archer 100 (England 299 all out){COLOURS['RESET']} extra text"
+        assert result == expected
+
+    def test_midwicket_is_not_a_wicket_highlight(self, tracker):
+        clause = "The ball flies through midwicket and reaches the boundary"
+        assert tracker._colourise_clause(clause) == clause
 
     # All out tests
     def test_numeric_all_out(self, tracker):

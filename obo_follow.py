@@ -239,11 +239,12 @@ class CricketFeedTracker:
             (rf"(?<!\w)(?:{self._configured_name_pattern})(?!\s*:)", COLOURS["BOLD"]),
         ]
 
-    def _print_update(self, text: str) -> None:
-        """Print one update separated by horizontal rules and blank lines."""
-        print("\n---\n")
-        print(self._colourise_text(text))
-        print("\n---\n")
+    def _print_updates(self, updates: list[str]) -> None:
+        """Print updates as one sequence framed and separated by horizontal rules."""
+        output = "\n---\n\n" + "\n\n---\n\n".join(
+            self._colourise_text(update) for update in updates
+        ) + "\n\n---\n"
+        print(output)
 
     def _colourise_text(self, text: str) -> str:
         """Apply colour coding to key events across an entire update.
@@ -480,8 +481,7 @@ class CricketFeedTracker:
 
         print(f"\n📊 Total updates: {len(all_updates)}\n")
 
-        for update in all_updates[-DISPLAY_LIMIT:]:
-            self._print_update(update)
+        self._print_updates(all_updates[-DISPLAY_LIMIT:])
 
     def watch(self, interval: int = DEFAULT_INTERVAL, max_runtime_hours: int = 9) -> None:
         """Poll the live blog repeatedly and print new updates.
@@ -516,8 +516,7 @@ class CricketFeedTracker:
                     new_updates = []
 
                 # Print only the new updates returned by fetch()
-                for update in new_updates:
-                    self._print_update(update)
+                self._print_updates(new_updates)
 
                 # Check timeout before sleeping
                 elapsed = time() - start_time
